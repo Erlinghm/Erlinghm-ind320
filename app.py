@@ -1,15 +1,14 @@
 import streamlit as st
 
-st.set_page_config(page_title="IND320 - Reservoirs", page_icon="\U0001F4A7", layout="wide")
+st.set_page_config(page_title="IND320 - Norwegian Reservoirs", layout="wide")
 
 st.title("IND320 - Norwegian Reservoir Data")
 
 st.markdown(
     """
-Welcome! This app explores Norwegian hydropower reservoir data (NVE's
-*magasinstatistikk*), filtered to the national total.
+This project explores Norwegian water reservoir data, filtered to the national total.
 
-Use the sidebar on the left to navigate between pages:
+The sidebar on the left contains following pages:
 
 - **Table** - the data shown as a table, with a small sparkline of the
   first month for each column
