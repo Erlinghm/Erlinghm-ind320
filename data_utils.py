@@ -1,14 +1,22 @@
 import pandas as pd
+import requests
 import streamlit as st
+
+MAGASIN_URL = "https://biapi.nve.no/magasinstatistikk/api/Magasinstatistikk/HentOffentligData"
 
 
 @st.cache_data
 def load_data():
-    """Read reservoirs.csv, rename headers to English, and filter to the
-    national total ('NO'), giving one clean row per week. Cached so the
-    file is only read/processed once per app session, not on every rerun.
+    """Fetch magasinstatistikk directly from NVE's API, rename headers to
+    English, and filter to the national total ('NO'), giving one clean row
+    per week. Cached so the API is only called once per app session, not on
+    every rerun.
     """
-    df = pd.read_csv("reservoirs.csv", parse_dates=["dato_Id"])
+    response = requests.get(MAGASIN_URL, timeout=30)
+    response.raise_for_status()
+    df = pd.DataFrame(response.json())
+    df["dato_Id"] = pd.to_datetime(df["dato_Id"])
+
     df = df.rename(columns={
         "omrType": "area_type",
         "omrnr": "area_number",
