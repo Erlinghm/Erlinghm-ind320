@@ -14,6 +14,10 @@ The sidebar on the left contains following pages:
   first month for each column
 - **Plot** - an interactive plot of the reservoir data over time, with a
   column selector and a month-range slider
+- **Cross-border** - Norway's physical electricity exchange with its four
+  directly connected neighbours (Denmark, Netherlands, Germany, Great
+  Britain), shown as a yearly export/import pie chart and a monthly line
+  plot, built on ENTSO-E data via Cassandra, Spark and MongoDB
 - **Extra** - placeholder page for future work
 """
 )
