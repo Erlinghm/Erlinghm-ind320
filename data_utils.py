@@ -1,14 +1,31 @@
 import pandas as pd
+import requests
 import streamlit as st
 
+MAGASIN_URL = "https://biapi.nve.no/magasinstatistikk/api/Magasinstatistikk/HentOffentligData"
 
+# st .cache_data is used here because the data is fetched from an external API and can be cached for performance. 
+# The data is not expected to change frequently, so caching it reduces the number of API calls and speeds up the app's response time.
 @st.cache_data
 def load_data():
-    """Read reservoirs.csv, rename headers to English, and filter to the
-    national total ('NO'), giving one clean row per week. Cached so the
-    file is only read/processed once per app session, not on every rerun.
+    """Fetch the full magasinstatistikk history directly from NVE's API and
+    rename headers to English. Keeps all area types (EL, NO, VASS) - pages
+    filter down to whichever type the user picks via a radio button. Cached
+    so the API is only called once per app session, not on every rerun.
+    Note: this endpoint takes no query parameters, so there is no way to ask
+    NVE for only a date range - the full history is always fetched once and
+    cached, and any "download interval" control in the pages below only
+    narrows down what we use from that cached data, not what is requested
+    from NVE.
     """
-    df = pd.read_csv("reservoirs.csv", parse_dates=["dato_Id"])
+
+    # Fetch the data from NVE's API
+    response = requests.get(MAGASIN_URL, timeout=30)
+    response.raise_for_status() # Raise an error if the request failed
+    df = pd.DataFrame(response.json()) # Convert the JSON response to a DataFrame
+    df["dato_Id"] = pd.to_datetime(df["dato_Id"]) # Convert the 'dato_Id' column to datetime format
+
+    # Rename the columns to English for consistency and clarity
     df = df.rename(columns={
         "omrType": "area_type",
         "omrnr": "area_number",
@@ -22,6 +39,10 @@ def load_data():
         "endring_fyllingsgrad": "fill_degree_change",
     })
 
-    national = df[df["area_type"] == "NO"].copy()
-    national = national.sort_values("dato_Id").set_index("dato_Id")
-    return national
+    # Sort the DataFrame by date and set the index to 'dato_Id' for easier time series analysis
+    return df.sort_values("dato_Id").set_index("dato_Id") 
+
+# Filter the DataFrame by area type
+def filter_area_type(df, area_type):
+    """Return only the rows for the given area type (EL, NO, or VASS)."""
+    return df[df["area_type"] == area_type].copy()
