@@ -16,6 +16,7 @@ dependencies = [
     "openpyxl",
     "datetime",
     "requests",
+    "python-dotenv",
     "river",
     "cassandra-driver",
     "pyspark==3.5.1",
