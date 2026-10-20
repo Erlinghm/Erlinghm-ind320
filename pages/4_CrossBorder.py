@@ -5,12 +5,14 @@ import streamlit as st
 from entsoe_utils import CONNECTION_LABELS, CONNECTIONS
 from mongo_utils import get_crossborder_collection
 
+# Title and caption
 st.title("Cross-border flows")
 st.caption(
     "Norway's physical electricity exchange with its directly connected neighbours, "
     "via the ENTSO-E Transparency Platform."
 )
 
+# Get the MongoDB collection for cross-border data
 collection = get_crossborder_collection()
 
 col_left, col_right = st.columns(2)
