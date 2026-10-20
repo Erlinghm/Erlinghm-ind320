@@ -216,8 +216,3 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-
-# Scratch files used to verify the ENTSO-E/Spark/Cassandra/Mongo pipeline - not part of the deliverable
-test_entsoe*.py
-entsoe_test_response.xml
-entsoe_crossborder_2025_raw.csv
