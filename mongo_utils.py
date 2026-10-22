@@ -17,6 +17,7 @@ def get_mongo_client():
     """
     return MongoClient(st.secrets["MONGODB_URI"], tlsCAFile=certifi.where())
 
-# Get the MongoDB collection for cross-border data
+# Get the MongoDB collection for cross-border data (daily totals, not monthly -
+# renamed from crossborder_monthly once the aggregation moved to daily granularity)
 def get_crossborder_collection(): 
-    return get_mongo_client()["ind320"]["crossborder_monthly"]
+    return get_mongo_client()["ind320"]["crossborder_daily"]
