@@ -10,6 +10,7 @@ so every position in the period gets a value.
 """
 
 import os # for os.getenv() to read ENTSOE_API_KEY from .env
+import time # for brief backoff between retries on a timed-out request
 import xml.etree.ElementTree as ET # for parsing the XML response from ENTSO-E
 from datetime import datetime, timedelta, timezone
 
@@ -67,10 +68,20 @@ def fetch_crossborder_flow_xml(out_domain_code, in_domain_code, start, end):
         "periodStart": start.strftime("%Y%m%d%H00"),
         "periodEnd": end.strftime("%Y%m%d%H00"),
     }
-    # Make the GET request to the ENTSO-E API and return the raw XML text
-    response = requests.get(BASE_URL, params=params, timeout=30)
-    response.raise_for_status() # Raise an error if the request failed (e.g., network issue, invalid API key, etc.)
-    return response.text # Return the raw XML response text from the ENTSO-E API
+    # Make the GET request to the ENTSO-E API, retrying on transient timeouts -
+    # with more requests now (two years instead of one), an occasional slow
+    # response from ENTSO-E should not kill the whole fetch loop.
+    last_error = None
+    for attempt in range(3):
+        try:
+            response = requests.get(BASE_URL, params=params, timeout=60)
+            response.raise_for_status() # Raise an error if the request failed (e.g., network issue, invalid API key, etc.)
+            return response.text # Return the raw XML response text from the ENTSO-E API
+        except requests.exceptions.Timeout as e:
+            last_error = e
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1)) # brief backoff before retrying: 2s, then 4s
+    raise last_error
 
 
 def parse_crossborder_xml(xml_text):
