@@ -24,9 +24,17 @@ with col_left:
         format_func=lambda c: CONNECTION_LABELS.get(c, c),
     )
 
-    years = sorted({doc["year"] for doc in collection.find({"connection": connection}, {"year": 1})})
+    # Default to the year with the most stored data rather than just the
+    # highest year number - a stray or incomplete year (e.g. a leftover test
+    # document) should never silently become the default view.
+    year_counts = list(collection.aggregate([
+        {"$match": {"connection": connection}},
+        {"$group": {"_id": "$year", "count": {"$sum": 1}}},
+    ]))
+    years = sorted(doc["_id"] for doc in year_counts)
     if years:
-        year = st.selectbox("Year", years, index=len(years) - 1)
+        best_year = max(year_counts, key=lambda d: d["count"])["_id"]
+        year = st.selectbox("Year", years, index=years.index(best_year))
 
         docs = list(collection.find({"connection": connection, "year": year}))
         totals = pd.DataFrame(docs).groupby("direction")["total_gwh"].sum()
