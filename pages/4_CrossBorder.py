@@ -1,9 +1,10 @@
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
+from pymongo.errors import PyMongoError
 
-from entsoe_utils import CONNECTION_LABELS, CONNECTIONS
-from mongo_utils import get_crossborder_collection
+from modules.entsoe_utils import CONNECTION_LABELS, CONNECTIONS
+from modules.mongo_utils import get_crossborder_collection
 
 # Title and caption
 st.title("Cross-border flows")
@@ -27,27 +28,43 @@ with col_left:
     # Default to the year with the most stored data rather than just the
     # highest year number - a stray or incomplete year (e.g. a leftover test
     # document) should never silently become the default view.
-    year_counts = list(collection.aggregate([
-        {"$match": {"connection": connection}},
-        {"$group": {"_id": "$year", "count": {"$sum": 1}}},
-    ]))
+    try:
+        year_counts = list(collection.aggregate([
+            {"$match": {"connection": connection}},
+            {"$group": {"_id": "$year", "count": {"$sum": 1}}},
+        ]))
+    except PyMongoError as e:
+        st.error(f"Could not reach the MongoDB database: {e}")
+        st.stop()
+
     years = sorted(doc["_id"] for doc in year_counts)
     if years:
         best_year = max(year_counts, key=lambda d: d["count"])["_id"]
         year = st.selectbox("Year", years, index=years.index(best_year))
 
-        docs = list(collection.find({"connection": connection, "year": year}))
-        totals = pd.DataFrame(docs).groupby("direction")["total_gwh"].sum()
+        try:
+            docs = list(collection.find({"connection": connection, "year": year}))
+        except PyMongoError as e:
+            st.error(f"Could not reach the MongoDB database: {e}")
+            st.stop()
 
-        fig, ax = plt.subplots()
-        ax.pie(
-            totals.values,
-            labels=[f"{d} ({v:.0f} GWh)" for d, v in totals.items()],
-            autopct="%1.1f%%",
-            startangle=90,
-        )
-        ax.set_title(f"{CONNECTION_LABELS.get(connection, connection)} - {year}")
-        st.pyplot(fig)
+        if not docs:
+            # Shouldn't normally happen (year was only offered because it had
+            # documents above), but guard anyway rather than crash on an
+            # empty DataFrame.
+            st.info(f"No data stored for {year}.")
+        else:
+            totals = pd.DataFrame(docs).groupby("direction")["total_gwh"].sum()
+
+            fig, ax = plt.subplots()
+            ax.pie(
+                totals.values,
+                labels=[f"{d} ({v:.0f} GWh)" for d, v in totals.items()],
+                autopct="%1.1f%%",
+                startangle=90,
+            )
+            ax.set_title(f"{CONNECTION_LABELS.get(connection, connection)} - {year}")
+            st.pyplot(fig)
     else:
         year = None
         st.info("No data stored yet for this connection.")
@@ -62,22 +79,34 @@ with col_right:
     elif not selected_months:
         st.info("Pick at least one month.")
     else:
-        docs = list(
-            collection.find({"connection": connection, "year": year, "month": {"$in": selected_months}})
-        )
-        df = pd.DataFrame(docs)
-        df["date"] = pd.to_datetime(dict(year=df["year"], month=df["month"], day=df["day"]))
-        df = df.sort_values("date")
+        try:
+            docs = list(
+                collection.find({"connection": connection, "year": year, "month": {"$in": selected_months}})
+            )
+        except PyMongoError as e:
+            st.error(f"Could not reach the MongoDB database: {e}")
+            st.stop()
 
-        fig2, ax2 = plt.subplots()
-        for direction, group in df.groupby("direction"):
-            ax2.plot(group["date"], group["total_gwh"], marker="o", markersize=3, label=direction)
-        ax2.set_xlabel("Date")
-        ax2.set_ylabel("Energy (GWh/day)")
-        ax2.set_title(f"{CONNECTION_LABELS.get(connection, connection)} - {year}")
-        ax2.legend()
-        fig2.autofmt_xdate(rotation=45)
-        st.pyplot(fig2)
+        if not docs:
+            # A connection/year can have gaps for a particular month (ENTSO-E
+            # data isn't always complete), so an empty result here is a real
+            # possibility, not just a bug - this used to crash with a
+            # KeyError on an empty DataFrame instead of showing this message.
+            st.info("No data for the selected months.")
+        else:
+            df = pd.DataFrame(docs)
+            df["date"] = pd.to_datetime(dict(year=df["year"], month=df["month"], day=df["day"]))
+            df = df.sort_values("date")
+
+            fig2, ax2 = plt.subplots()
+            for direction, group in df.groupby("direction"):
+                ax2.plot(group["date"], group["total_gwh"], marker="o", markersize=3, label=direction)
+            ax2.set_xlabel("Date")
+            ax2.set_ylabel("Energy (GWh/day)")
+            ax2.set_title(f"{CONNECTION_LABELS.get(connection, connection)} - {year}")
+            ax2.legend()
+            fig2.autofmt_xdate(rotation=45)
+            st.pyplot(fig2)
 
 with st.expander("About this data"):
     st.markdown(

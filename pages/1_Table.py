@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 
-from data_utils import load_data, filter_area_type
+from modules.data_utils import load_data, filter_area_type
 
 st.title("Data Table")
 
