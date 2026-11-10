@@ -35,7 +35,9 @@ with tab_stl:
         seasonal = st.slider(
             "Seasonal smoother", min_value=7, max_value=105, value=53, step=2,
             help="LOESS window for the seasonal component (must be odd). "
-                 "53 is just over one 52-week annual cycle.",
+                 "53 is just over one 52-week annual cycle. Fill degree is such a "
+                 "clean, strongly seasonal signal that this often changes the "
+                 "extracted seasonal shape only slightly - that's expected, not a bug.",
         )
     with col2:
         auto_trend = st.checkbox("Auto trend smoother", value=True)
@@ -54,9 +56,11 @@ with tab_stl:
                  "weeks don't distort the trend/seasonal estimates.",
         )
 
-    axes, result = plot_fill_degree_stl(series, seasonal=seasonal, trend=trend, robust=robust)
+    axes, result = plot_fill_degree_stl(
+        series, seasonal=seasonal, trend=trend, robust=robust,
+        title=f"STL decomposition - {label}",
+    )
     fig = axes[0].figure
-    fig.suptitle(f"STL decomposition - {label}")
     st.pyplot(fig)
     plt.close(fig)
 

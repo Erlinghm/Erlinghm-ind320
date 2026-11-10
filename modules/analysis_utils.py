@@ -128,7 +128,8 @@ def plot_temperature_anomalies(series, freq_cutoff=10, contamination=0.01, n_nei
     return ax, summary
 
 
-def plot_fill_degree_stl(series, period=52, seasonal=53, trend=None, robust=False, axes=None):
+def plot_fill_degree_stl(series, period=52, seasonal=53, trend=None, robust=False, axes=None,
+                          title="STL decomposition of reservoir fill degree"):
     """STL (Seasonal-Trend decomposition using LOESS) of a reservoir
     fill-degree series, plotted as its four components.
 
@@ -170,7 +171,7 @@ def plot_fill_degree_stl(series, period=52, seasonal=53, trend=None, robust=Fals
         ax.plot(series.index, component, linewidth=0.8)
         ax.set_ylabel(label)
     axes[-1].set_xlabel("Time")
-    axes[0].set_title("STL decomposition of reservoir fill degree")
+    axes[0].set_title(title)
     plt.tight_layout()
 
     return axes, result

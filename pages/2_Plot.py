@@ -14,6 +14,12 @@ data = load_data()
 area_type, _ = area_selector()
 areas = filter_area_type(data, area_type)
 
+if area_type == "EL":
+    st.caption(
+        "This page shows every EL price zone at once - the price-zone picker in "
+        "the sidebar only narrows things down on the Fill Degree and Weather pages."
+    )
+
 numeric_cols = ["fill_degree", "capacity_twh", "filling_twh",
                  "fill_degree_prev_week", "fill_degree_change"]
 selected_col = st.selectbox("Choose a column to plot", options=numeric_cols)

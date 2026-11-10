@@ -11,9 +11,11 @@ that couples them to Streamlit.
 
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 
 from modules.data_utils import load_data, filter_area_type
+from modules.mongo_utils import get_weather_collection
 from modules.weather_utils import sample_points_per_region
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -92,3 +94,38 @@ def get_el_sampled_points(seed=0, n_points=1000):
     points = sample_points_per_region(BUDOMRADER_SHP, "budomr", n_points=n_points, seed=seed)
     points["region"] = points["region"].str.replace(" ", "")  # "NO 3" -> "NO3"
     return points
+@st.cache_data(ttl=3600)
+def get_weather_hourly_avg_from_mongo(region_label, year):
+    """The pre-aggregated hourly weather average for one region/year, read
+    straight from MongoDB - this is what the Cassandra -> Spark -> MongoDB
+    pipeline in the Part 3 notebook populates (so far just NO3, 2024).
+
+    Returns None if that region/year isn't in MongoDB yet (incomplete or
+    missing entirely) - that's not an error, it just means the caller
+    should fall back to the open-meteo download + on-the-fly pandas
+    aggregation instead. Checking MongoDB first like this is what lets the
+    weather pages work on Streamlit Community Cloud, which has no
+    persistent local disk for the CSV cache the fallback path relies on -
+    whichever region/year has actually been pushed to MongoDB loads
+    instantly there with no network call, while anything not yet pushed
+    still works via the original download flow.
+    """
+    expected_hours = len(pd.date_range(f"{year}-01-01", f"{year}-12-31 23:00", freq="h"))
+    collection = get_weather_collection()
+    start = f"{year}-01-01T00:00:00+00:00"
+    end = f"{year}-12-31T23:00:00+00:00"
+    docs = list(
+        collection.find({"region": region_label, "timestamp": {"$gte": start, "$lte": end}})
+        .sort("timestamp", 1)
+    )
+    if len(docs) != expected_hours:
+        return None
+
+    df = pd.DataFrame(docs)
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df = df.set_index("timestamp").rename(columns={
+        "temperature_2m_avg": "temperature_2m",
+        "precipitation_avg": "precipitation",
+        "snowfall_avg": "snowfall",
+    })
+    return df[["temperature_2m", "precipitation", "snowfall"]].sort_index()

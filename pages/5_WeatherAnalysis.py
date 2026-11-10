@@ -3,7 +3,7 @@ import pandas as pd
 import streamlit as st
 
 from modules.analysis_utils import plot_precipitation_outliers, plot_temperature_anomalies
-from modules.app_utils import area_selector, get_el_sampled_points
+from modules.app_utils import area_selector, get_el_sampled_points, get_weather_hourly_avg_from_mongo
 from modules.weather_utils import fetch_weather_for_region, weather_cache_status
 
 st.title("Weather Outliers and Anomalies")
@@ -24,27 +24,38 @@ region_label = f"NO{area_number}"
 year = 2024
 start_date, end_date = f"{year}-01-01", f"{year}-12-31"
 
-all_points = get_el_sampled_points()
-cached, total = weather_cache_status(region_label, all_points, start_date, end_date)
+# Try MongoDB first - the Cassandra -> Spark -> MongoDB pipeline in the Part 3
+# notebook pre-aggregates this, so when it's there this is a fast, no-network
+# read that works anywhere, including Streamlit Community Cloud (which has no
+# persistent local disk for the CSV cache the fallback below relies on).
+hourly_avg = get_weather_hourly_avg_from_mongo(region_label, year)
+source = "MongoDB"
 
-if cached < total:
-    st.warning(
-        f"Weather for {region_label}, {year} isn't fully downloaded yet "
-        f"({cached}/{total} chunk(s) cached)."
-    )
-    st.page_link("pages/4_WeatherDownload.py", label="Go to the Weather Download page", icon="⬇️")
-    st.stop()
+if hourly_avg is None:
+    # Not in MongoDB yet for this zone/year - fall back to the original
+    # open-meteo CSV cache + on-the-fly pandas aggregation.
+    all_points = get_el_sampled_points()
+    cached, total = weather_cache_status(region_label, all_points, start_date, end_date)
 
-# Fully cached, so this is a disk-only read - no network call, safe to run on
-# every page visit/rerun (unlike the Weather Download page's button, which is
-# the only place that can actually trigger a new, potentially slow, open-meteo
-# request).
-weather = fetch_weather_for_region(region_label, all_points, start_date, end_date)
-hourly_avg = weather.groupby("timestamp")[["temperature_2m", "precipitation", "snowfall"]].mean()
-hourly_avg.index = pd.to_datetime(hourly_avg.index)
-hourly_avg = hourly_avg.sort_index()
+    if cached < total:
+        st.warning(
+            f"Weather for {region_label}, {year} isn't available in MongoDB, and isn't "
+            f"fully downloaded to disk either ({cached}/{total} chunk(s) cached)."
+        )
+        st.page_link("pages/4_WeatherDownload.py", label="Go to the Weather Download page", icon="⬇️")
+        st.stop()
 
-st.caption(f"{len(hourly_avg)} hourly readings for **{region_label}**, {year}.")
+    # Fully cached, so this is a disk-only read - no network call, safe to run
+    # on every page visit/rerun (unlike the Weather Download page's button,
+    # which is the only place that can trigger a new, potentially slow,
+    # open-meteo request).
+    weather = fetch_weather_for_region(region_label, all_points, start_date, end_date)
+    hourly_avg = weather.groupby("timestamp")[["temperature_2m", "precipitation", "snowfall"]].mean()
+    hourly_avg.index = pd.to_datetime(hourly_avg.index)
+    hourly_avg = hourly_avg.sort_index()
+    source = "local disk cache"
+
+st.caption(f"{len(hourly_avg)} hourly readings for **{region_label}**, {year} (from {source}).")
 
 tab_spc, tab_lof = st.tabs(["Outlier / SPC (precipitation)", "Anomaly / LOF (temperature)"])
 

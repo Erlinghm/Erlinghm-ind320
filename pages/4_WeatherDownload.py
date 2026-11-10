@@ -1,6 +1,6 @@
 import streamlit as st
 
-from modules.app_utils import area_selector, get_el_sampled_points
+from modules.app_utils import area_selector, get_el_sampled_points, get_weather_hourly_avg_from_mongo
 from modules.weather_utils import CHUNK_SIZE, fetch_weather_for_region, weather_cache_status
 
 st.title("Meteorological Data")
@@ -39,6 +39,24 @@ year = st.selectbox(
     help="Only 2024 has been downloaded/validated so far - see the Part 3 notebook.",
 )
 start_date, end_date = f"{year}-01-01", f"{year}-12-31"
+
+# Check MongoDB first - if the Part 3 notebook's Cassandra -> Spark -> MongoDB
+# pipeline has already pushed this zone/year, the Weather Analysis page reads
+# it straight from there and there's nothing to download here.
+mongo_hourly_avg = get_weather_hourly_avg_from_mongo(region_label, year)
+if mongo_hourly_avg is not None:
+    st.success(
+        f"{region_label}, {year} is already available from MongoDB "
+        f"({len(mongo_hourly_avg)} hourly readings) - the Weather Analysis page "
+        f"reads this directly, no download needed."
+    )
+    st.dataframe(mongo_hourly_avg.head())
+    st.stop()
+
+st.info(
+    f"{region_label}, {year} isn't in MongoDB yet, so this falls back to the "
+    f"open-meteo download + local disk cache below."
+)
 
 all_points = get_el_sampled_points()
 cached, total = weather_cache_status(region_label, all_points, start_date, end_date)

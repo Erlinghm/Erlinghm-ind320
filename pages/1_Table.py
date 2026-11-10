@@ -16,6 +16,11 @@ area_type, _ = area_selector()
 areas = filter_area_type(data, area_type)
 
 st.write(f"Full data ({area_type}):")
+if area_type == "EL":
+    st.caption(
+        "This page shows every EL price zone at once - the price-zone picker in "
+        "the sidebar only narrows things down on the Fill Degree and Weather pages."
+    )
 
 # Same "download interval" slider pattern as the Plot page - lets you narrow
 # down which period of the already-cached data to look at, instead of always

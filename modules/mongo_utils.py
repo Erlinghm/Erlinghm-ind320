@@ -21,3 +21,8 @@ def get_mongo_client():
 # renamed from crossborder_monthly once the aggregation moved to daily granularity)
 def get_crossborder_collection(): 
     return get_mongo_client()["ind320"]["crossborder_daily"]
+
+# Get the MongoDB collection for pre-aggregated hourly weather averages -
+# built by the Cassandra -> Spark -> MongoDB pipeline in the Part 3 notebook
+def get_weather_collection():
+    return get_mongo_client()["ind320"]["weather_hourly_avg"]
