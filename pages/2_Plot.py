@@ -1,15 +1,17 @@
 import matplotlib.pyplot as plt
 import streamlit as st
 
+from modules.app_utils import area_selector
 from modules.data_utils import load_data, filter_area_type
 
 st.title("Reservoir Data Plot")
 
 data = load_data()
 
-# Same area-type radio as the Table page - this decides how many lines end
-# up on the plot (one per area number within the chosen type).
-area_type = st.radio("Area type", options=["EL", "NO", "VASS"], index=1)
+# Shared sidebar area selector (modules/app_utils.py) - same one as the
+# Table page and the new Fill Degree / Weather pages. Only area_type is used
+# here (one line per area number within the chosen type, same as before).
+area_type, _ = area_selector()
 areas = filter_area_type(data, area_type)
 
 numeric_cols = ["fill_degree", "capacity_twh", "filling_twh",

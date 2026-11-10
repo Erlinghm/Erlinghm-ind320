@@ -1,16 +1,18 @@
 import pandas as pd
 import streamlit as st
 
+from modules.app_utils import area_selector
 from modules.data_utils import load_data, filter_area_type
 
 st.title("Data Table")
 
 data = load_data()
 
-# Radio button to pick which type of area to look at. NO has only the
-# national total (1 area), EL has 5 price zones, VASS has 4 watercourse
-# regions - so switching this changes how many rows show up below.
-area_type = st.radio("Area type", options=["EL", "NO", "VASS"], index=1)
+# Shared sidebar area selector (modules/app_utils.py) - only area_type is used
+# here (every area of that type is shown below), but it's the same global
+# selector the Fill Degree / Weather pages use, so switching area here keeps
+# that choice when you navigate there too.
+area_type, _ = area_selector()
 areas = filter_area_type(data, area_type)
 
 st.write(f"Full data ({area_type}):")

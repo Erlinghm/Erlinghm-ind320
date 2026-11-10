@@ -36,5 +36,6 @@ dependencies = [
     "kaleido",
     "lorem",
     "pymongo",
-    "streamlit"
+    "streamlit",
+    "geopandas>=1.2.0",
 ]

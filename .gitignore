@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Cached open-meteo weather downloads (regeneratable, and too large to commit)
+data/cache/
+
+# macOS
+.DS_Store
