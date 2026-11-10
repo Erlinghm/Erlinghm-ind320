@@ -109,20 +109,31 @@ def get_weather_hourly_avg_from_mongo(region_label, year):
     whichever region/year has actually been pushed to MongoDB loads
     instantly there with no network call, while anything not yet pushed
     still works via the original download flow.
+
+    Filters by year in pandas rather than with a Mongo-side string range
+    query on `timestamp` - the pipeline writes `timestamp.isoformat()`,
+    and whether that comes out tz-aware ("...+00:00") or naive depends on
+    what Spark's toPandas() handed back, which isn't worth hard-coding
+    here. pd.to_datetime parses either form, so filtering client-side
+    after fetching is the robust option; this also means a stray
+    out-of-year document (e.g. a leading/trailing hour from an
+    aggregation edge case) is naturally excluded rather than tripping up
+    a brittle string-prefix comparison.
     """
     expected_hours = len(pd.date_range(f"{year}-01-01", f"{year}-12-31 23:00", freq="h"))
     collection = get_weather_collection()
-    start = f"{year}-01-01T00:00:00+00:00"
-    end = f"{year}-12-31T23:00:00+00:00"
-    docs = list(
-        collection.find({"region": region_label, "timestamp": {"$gte": start, "$lte": end}})
-        .sort("timestamp", 1)
-    )
-    if len(docs) != expected_hours:
+    docs = list(collection.find({"region": region_label}))
+    if not docs:
         return None
 
     df = pd.DataFrame(docs)
     df["timestamp"] = pd.to_datetime(df["timestamp"])
+    if df["timestamp"].dt.tz is not None:
+        df["timestamp"] = df["timestamp"].dt.tz_localize(None)
+    df = df[df["timestamp"].dt.year == year]
+    if len(df) != expected_hours:
+        return None
+
     df = df.set_index("timestamp").rename(columns={
         "temperature_2m_avg": "temperature_2m",
         "precipitation_avg": "precipitation",
