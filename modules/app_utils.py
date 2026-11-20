@@ -16,16 +16,19 @@ import streamlit as st
 
 from modules.data_utils import load_data, filter_area_type
 from modules.mongo_utils import get_weather_collection
-from modules.weather_utils import sample_points_per_region
+from modules.weather_utils import sample_points_per_region, sample_points_per_vass_zone
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 BUDOMRADER_SHP = PROJECT_ROOT / "data/shapefiles/budomrader/Budområder.shp"
+NVE_REGIONER_SHP = PROJECT_ROOT / "data/shapefiles/nve_regioner/NVE_Region.shp"
 
 AREA_TYPE_HELP = (
     "EL = the 5 electricity price zones (NO1-NO5); "
     "NO = the national total (one area only); "
-    "VASS = the 3 watercourse regions."
+    "VASS = the 3 watercourse zones (East, West, North)."
 )
+
+VASS_LABELS = {1: "East (VASS1)", 2: "West (VASS2)", 3: "North (VASS3)"}
 
 
 def area_selector():
@@ -62,8 +65,9 @@ def area_selector():
         )
     elif area_type == "VASS":
         area_number = st.sidebar.selectbox(
-            "Watercourse region",
+            "Watercourse zone",
             options=[1, 2, 3],
+            format_func=lambda n: VASS_LABELS[n],
             key="area_number_vass",
         )
     else:
@@ -94,6 +98,32 @@ def get_el_sampled_points(seed=0, n_points=1000):
     points = sample_points_per_region(BUDOMRADER_SHP, "budomr", n_points=n_points, seed=seed)
     points["region"] = points["region"].str.replace(" ", "")  # "NO 3" -> "NO3"
     return points
+
+
+@st.cache_data
+def get_vass_sampled_points(seed=0, n_points=1000):
+    """The sampled lon/lat points per VASS watercourse zone (East=RS+RØ,
+    West=RV, North=RM+RN - see modules/weather_utils.py), labeled
+    VASS1/VASS2/VASS3 to match magasinstatistikk's own omrnr - cached for
+    the same reason as get_el_sampled_points.
+    """
+    return sample_points_per_vass_zone(NVE_REGIONER_SHP, n_points=n_points, seed=seed)
+
+
+def get_weather_region_label_and_points(area_type, area_number):
+    """Resolve the shared area selector's (area_type, area_number) to the
+    region_label/all_points pair the weather pages need - EL maps straight
+    onto a budomrader price zone ("NO3"), VASS maps onto one of the 3
+    grouped NVE_Region zones ("VASS1"/"VASS2"/"VASS3"). NO (the national
+    total) has no corresponding region shapefile at all, so weather
+    sampling doesn't support it - callers are expected to gate on
+    area_type == "NO" before calling this.
+    """
+    if area_type == "EL":
+        return f"NO{area_number}", get_el_sampled_points()
+    return f"VASS{area_number}", get_vass_sampled_points()
+
+
 @st.cache_data(ttl=3600)
 def get_weather_hourly_avg_from_mongo(region_label, year):
     """The pre-aggregated hourly weather average for one region/year, read

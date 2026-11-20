@@ -54,6 +54,44 @@ def sample_points_per_region(shapefile_path, region_col, n_points=1000, seed=Non
     return pd.DataFrame(rows)
 
 
+# NVE_Region.shp (used above for weather sampling) has 5 regions: RS, RØ, RV,
+# RM, RN. magasinstatistikk's VASS area type reports 3 of those as combined
+# zones - confirmed against NVE's own authoritative region descriptions
+# (biapi.nve.no/magasinstatistikk/api/Magasinstatistikk/HentOmråder), which
+# describe omrnr 1 as "Sørøst-Norge...Østlandet, Agder og deler av Rogaland"
+# (matches RS+RØ), omrnr 2 as "Vest-Norge" (matches RV alone), and omrnr 3 as
+# "Midt-Norge...og sørlige Nordland" (matches RM+RN). Per the teacher's
+# feedback these get the names East/West/North. (NVE's endpoint also lists a
+# 4th VASS region, "Nord-Norge" - but it never shows up with real data in the
+# historical feed, so it's left out here rather than guessed at.)
+VASS_REGION_GROUPS = {
+    1: ("East", ["RS", "RØ"]),
+    2: ("West", ["RV"]),
+    3: ("North", ["RM", "RN"]),
+}
+
+
+def sample_points_per_vass_zone(shapefile_path, region_col="REGION", n_points=1000, seed=None):
+    """Like sample_points_per_region, but for the 3 combined VASS watercourse
+    zones rather than the 5 raw shapefile regions: samples n_points per raw
+    region as usual, then relabels each point from its raw region code (RS,
+    RØ, RV, RM, RN) to its VASS zone ("VASS1"/"VASS2"/"VASS3", matching
+    magasinstatistikk's own omrnr so the rest of the weather pipeline - which
+    only ever looks up points by exact region label - doesn't need to know
+    about the grouping at all). East and North each combine 2 raw regions,
+    so they end up with 2 * n_points sampled locations; West (1 raw region)
+    has n_points, same as a single EL zone.
+    """
+    points = sample_points_per_region(shapefile_path, region_col, n_points=n_points, seed=seed)
+    code_to_zone = {
+        code: f"VASS{area_number}"
+        for area_number, (_name, codes) in VASS_REGION_GROUPS.items()
+        for code in codes
+    }
+    points["region"] = points["region"].map(code_to_zone)
+    return points
+
+
 ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 
 # Precipitation and temperature are what the assignment explicitly asks for;

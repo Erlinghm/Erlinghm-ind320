@@ -3,7 +3,11 @@ import pandas as pd
 import streamlit as st
 
 from modules.analysis_utils import plot_precipitation_outliers, plot_temperature_anomalies
-from modules.app_utils import area_selector, get_el_sampled_points, get_weather_hourly_avg_from_mongo
+from modules.app_utils import (
+    area_selector,
+    get_weather_hourly_avg_from_mongo,
+    get_weather_region_label_and_points,
+)
 from modules.weather_utils import fetch_weather_for_region, weather_cache_status
 
 st.title("Weather Outliers and Anomalies")
@@ -13,14 +17,15 @@ st.title("Weather Outliers and Anomalies")
 # of downloaded data depend on the magasinstatistikk selector.
 area_type, area_number = area_selector()
 
-if area_type != "EL":
+if area_type == "NO":
     st.info(
-        "Weather-based analysis only covers EL (electricity price zones, NO1-NO5) so far - "
-        "pick an EL zone in the sidebar to use this page."
+        "Weather-based analysis isn't available for the national total - it has no "
+        "corresponding region shapefile to sample points from. Pick an EL price zone or a "
+        "VASS watercourse zone in the sidebar to use this page."
     )
     st.stop()
 
-region_label = f"NO{area_number}"
+region_label, all_points = get_weather_region_label_and_points(area_type, area_number)
 year = 2024
 start_date, end_date = f"{year}-01-01", f"{year}-12-31"
 
@@ -34,7 +39,6 @@ source = "MongoDB"
 if hourly_avg is None:
     # Not in MongoDB yet for this zone/year - fall back to the original
     # open-meteo CSV cache + on-the-fly pandas aggregation.
-    all_points = get_el_sampled_points()
     cached, total = weather_cache_status(region_label, all_points, start_date, end_date)
 
     if cached < total:
