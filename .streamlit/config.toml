@@ -1,0 +1,10 @@
+# Matches modules/theme.py's CHROME/CATEGORICAL colours, so Streamlit's own
+# chrome (buttons, sliders, sidebar, links) and the Plotly charts inside it
+# read as one consistent app rather than two different colour schemes.
+[theme]
+base = "light"
+primaryColor = "#2a78d6"
+backgroundColor = "#fcfcfb"
+secondaryBackgroundColor = "#f0efec"
+textColor = "#0b0b0b"
+font = "sans serif"

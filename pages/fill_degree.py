@@ -1,8 +1,11 @@
-import matplotlib.pyplot as plt
+import numpy as np
+import plotly.graph_objects as go
 import streamlit as st
+from plotly.subplots import make_subplots
 
-from modules.analysis_utils import plot_fill_degree_spectrogram, plot_fill_degree_stl
+from modules.analysis_utils import fill_degree_spectrogram, fill_degree_stl
 from modules.app_utils import area_selector, get_fill_degree_series
+from modules.theme import CATEGORICAL, SEQUENTIAL
 
 st.title("Fill-Degree Decomposition")
 
@@ -56,13 +59,21 @@ with tab_stl:
                  "weeks don't distort the trend/seasonal estimates.",
         )
 
-    axes, result = plot_fill_degree_stl(
-        series, seasonal=seasonal, trend=trend, robust=robust,
-        title=f"STL decomposition - {label}",
-    )
-    fig = axes[0].figure
-    st.pyplot(fig)
-    plt.close(fig)
+    result = fill_degree_stl(series, seasonal=seasonal, trend=trend, robust=robust)
+
+    components = [
+        ("fill degree", result.observed), ("trend", result.trend),
+        ("seasonal", result.seasonal), ("residual", result.resid),
+    ]
+    fig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.04)
+    for i, (name, component) in enumerate(components):
+        fig.add_trace(
+            go.Scatter(x=series.index, y=component, mode="lines", name=name, line=dict(color=CATEGORICAL[i])),
+            row=i + 1, col=1,
+        )
+        fig.update_yaxes(title_text=name, row=i + 1, col=1)
+    fig.update_layout(height=700, showlegend=False, title=f"STL decomposition - {label}")
+    st.plotly_chart(fig, use_container_width=True)
 
 with tab_spectrogram:
     st.write(
@@ -86,9 +97,15 @@ with tab_spectrogram:
                  "is the usual STFT convention.",
         )
 
-    ax, (freqs, times, Sxx) = plot_fill_degree_spectrogram(
-        series, window_length=window_length, window_overlap=window_overlap
+    freqs, times, Sxx = fill_degree_spectrogram(series, window_length=window_length, window_overlap=window_overlap)
+    power_db = 10 * np.log10(Sxx + 1e-12)
+
+    fig = go.Figure(go.Heatmap(
+        x=times, y=freqs, z=power_db, colorscale=SEQUENTIAL, colorbar=dict(title="Power (dB)"),
+    ))
+    fig.update_layout(
+        title=f"Spectrogram - {label}",
+        xaxis_title="Time (weeks since start)", yaxis_title="Frequency (cycles/year)",
+        height=500,
     )
-    ax.set_title(f"Spectrogram - {label}")
-    st.pyplot(ax.figure)
-    plt.close(ax.figure)
+    st.plotly_chart(fig, use_container_width=True)

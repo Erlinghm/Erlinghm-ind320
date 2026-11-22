@@ -6,17 +6,34 @@ whole script on every interaction" model doesn't repeat expensive work.
 Kept separate from data_utils.py/weather_utils.py/analysis_utils.py on
 purpose - those stay importable and testable without Streamlit installed
 (as used directly in the Part 3 notebook); this module is the only place
-that couples them to Streamlit.
+that couples them to Streamlit. For the same reason, the Streamlit-cached
+MongoClient/collection helpers (get_mongo_client, get_crossborder_collection)
+live here too, not in modules/mongo_utils.py - that module is meant to be
+importable from the notebook with NO streamlit dependency at all, and even
+just `import streamlit` (not calling anything st.cache_*-decorated) is
+enough to print its "No runtime found"/"missing ScriptRunContext" warnings
+outside a real app.
 """
 
 from pathlib import Path
 
+import certifi
 import pandas as pd
 import streamlit as st
+from pymongo import MongoClient
 
 from modules.data_utils import load_data, filter_area_type
-from modules.mongo_utils import get_weather_collection
+from modules.mongo_utils import get_weather_hourly_avg
+from modules.theme import register_template
 from modules.weather_utils import sample_points_per_region, sample_points_per_vass_zone
+
+# Registers the shared Plotly template as a side effect of importing this
+# module - every page already imports something from here (area_selector,
+# at least), so this is what makes every st.plotly_chart(...) in the app
+# pick up the same colours/theme without each page having to call it
+# itself. Registering more than once (e.g. Streamlit re-importing modules
+# across pages) is harmless - it just re-sets the same template.
+register_template()
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 BUDOMRADER_SHP = PROJECT_ROOT / "data/shapefiles/budomrader/Budområder.shp"
@@ -126,47 +143,45 @@ def get_weather_region_label_and_points(area_type, area_number):
 
 @st.cache_data(ttl=3600)
 def get_weather_hourly_avg_from_mongo(region_label, year):
-    """The pre-aggregated hourly weather average for one region/year, read
-    straight from MongoDB - this is what the Cassandra -> Spark -> MongoDB
-    pipeline in the Part 3 notebook populates (so far just NO3, 2024).
-
-    Returns None if that region/year isn't in MongoDB yet (incomplete or
-    missing entirely) - that's not an error, it just means the caller
-    should fall back to the open-meteo download + on-the-fly pandas
-    aggregation instead. Checking MongoDB first like this is what lets the
-    weather pages work on Streamlit Community Cloud, which has no
-    persistent local disk for the CSV cache the fallback path relies on -
-    whichever region/year has actually been pushed to MongoDB loads
-    instantly there with no network call, while anything not yet pushed
-    still works via the original download flow.
-
-    Filters by year in pandas rather than with a Mongo-side string range
-    query on `timestamp` - the pipeline writes `timestamp.isoformat()`,
-    and whether that comes out tz-aware ("...+00:00") or naive depends on
-    what Spark's toPandas() handed back, which isn't worth hard-coding
-    here. pd.to_datetime parses either form, so filtering client-side
-    after fetching is the robust option; this also means a stray
-    out-of-year document (e.g. a leading/trailing hour from an
-    aggregation edge case) is naturally excluded rather than tripping up
-    a brittle string-prefix comparison.
+    """Thin st.cache_data wrapper around mongo_utils.get_weather_hourly_avg()
+    - see there for the actual Mongo read/validation logic. Kept as a
+    separate, Streamlit-cached entry point here (rather than just calling
+    the plain function directly from the pages) so repeated page
+    reruns/navigations don't re-hit MongoDB for a region/year that's
+    already been read once this session - this is what lets the weather
+    pages work on Streamlit Community Cloud, which has no persistent local
+    disk for the CSV cache the fallback path relies on.
     """
-    expected_hours = len(pd.date_range(f"{year}-01-01", f"{year}-12-31 23:00", freq="h"))
-    collection = get_weather_collection()
-    docs = list(collection.find({"region": region_label}))
-    if not docs:
-        return None
+    return get_weather_hourly_avg(region_label, year)
 
-    df = pd.DataFrame(docs)
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    if df["timestamp"].dt.tz is not None:
-        df["timestamp"] = df["timestamp"].dt.tz_localize(None)
-    df = df[df["timestamp"].dt.year == year]
-    if len(df) != expected_hours:
-        return None
 
-    df = df.set_index("timestamp").rename(columns={
-        "temperature_2m_avg": "temperature_2m",
-        "precipitation_avg": "precipitation",
-        "snowfall_avg": "snowfall",
-    })
-    return df[["temperature_2m", "precipitation", "snowfall"]].sort_index()
+@st.cache_resource  # Cache the MongoClient across reruns - it isn't serializable, so this
+# needs st.cache_resource rather than st.cache_data. Lives here, not
+# modules/mongo_utils.py, for the same reason the function below does -
+# see this module's own docstring and mongo_utils.py's.
+def get_mongo_client():
+    return MongoClient(st.secrets["MONGODB_URI"], tlsCAFile=certifi.where())
+
+
+def get_crossborder_collection():
+    """The MongoDB collection for cross-border data (daily totals, not
+    monthly - renamed from crossborder_monthly once the aggregation moved
+    to daily granularity). Kept here rather than in modules/mongo_utils.py
+    - which is meant to stay import-safe from the notebook with no
+    Streamlit dependency at all - since this goes through the
+    Streamlit-cached get_mongo_client() above.
+    """
+    return get_mongo_client()["ind320"]["crossborder_daily"]
+
+
+@st.cache_data(ttl=3600)
+def get_crossborder_docs(connection, year):
+    """All cross-border flow documents for one connection/year, as a
+    DataFrame - cached so the Cross-border Exchange page's year/direction
+    totals and daily-by-month chart don't each re-query MongoDB on every
+    rerun (e.g. every time the month pills selection changes), since both
+    read from the exact same (connection, year) document set and only
+    differ in how it's aggregated/filtered afterwards, in pandas.
+    """
+    docs = list(get_crossborder_collection().find({"connection": connection, "year": year}))
+    return pd.DataFrame(docs)

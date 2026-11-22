@@ -39,6 +39,7 @@ parso==0.8.7
 pexpect==4.9.0
 pillow==12.3.0
 platformdirs==4.11.11
+plotly==6.1.2
 prompt_toolkit==3.0.53
 protobuf==7.36.2
 psutil==7.2.2
@@ -55,6 +56,7 @@ python-multipart==0.0.32
 pyzmq==27.2.0
 referencing==0.37.0
 requests==2.34.2
+river==0.27.0
 rpds-py==2026.6.3
 scikit-learn==1.9.0
 scipy==1.18.0

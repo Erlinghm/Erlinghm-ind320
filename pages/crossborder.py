@@ -1,9 +1,10 @@
-import matplotlib.pyplot as plt
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
+from modules.app_utils import get_crossborder_docs
 from modules.entsoe_utils import CONNECTION_LABELS, CONNECTIONS
-from modules.mongo_utils import get_crossborder_collection
+from modules.theme import CATEGORICAL
 
 # Title and caption
 st.title("Cross-border flows")
@@ -17,9 +18,6 @@ st.caption(
 # never end up as a selectable option.
 YEARS = [2024, 2025]
 
-# Get the MongoDB collection for cross-border data
-collection = get_crossborder_collection()
-
 col_left, col_right = st.columns(2)
 
 with col_left:
@@ -31,21 +29,21 @@ with col_left:
 
     year = st.selectbox("Year", YEARS)
 
-    docs = list(collection.find({"connection": connection, "year": year}))
-    if not docs:
+    year_df = get_crossborder_docs(connection, year)
+    if year_df.empty:
         st.info(f"No data stored for {year}.")
     else:
-        totals = pd.DataFrame(docs).groupby("direction")["total_gwh"].sum()
+        totals = year_df.groupby("direction")["total_gwh"].sum()
 
-        fig, ax = plt.subplots()
-        ax.pie(
-            totals.values,
-            labels=[f"{d} ({v:.0f} GWh)" for d, v in totals.items()],
-            autopct="%1.1f%%",
-            startangle=90,
-        )
-        ax.set_title(f"{CONNECTION_LABELS.get(connection, connection)} - {year}")
-        st.pyplot(fig)
+        fig = go.Figure(go.Pie(
+            labels=list(totals.index),
+            values=totals.values,
+            text=[f"{d} ({v:.0f} GWh)" for d, v in totals.items()],
+            textinfo="percent+text",
+            marker=dict(colors=CATEGORICAL[: len(totals)]),
+        ))
+        fig.update_layout(title=f"{CONNECTION_LABELS.get(connection, connection)} - {year}", height=420)
+        st.plotly_chart(fig, use_container_width=True)
 
 with col_right:
     month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -54,29 +52,32 @@ with col_right:
 
     if not selected_months:
         st.info("Pick at least one month.")
+    elif year_df.empty:
+        st.info("No data for the selected months.")
     else:
-        docs = list(
-            collection.find({"connection": connection, "year": year, "month": {"$in": selected_months}})
-        )
-        if not docs:
+        df = year_df[year_df["month"].isin(selected_months)]
+        if df.empty:
             # A connection/year can have gaps for a particular month (ENTSO-E data
             # isn't always complete) - this used to crash with a KeyError on an
             # empty DataFrame instead of showing this message.
             st.info("No data for the selected months.")
         else:
-            df = pd.DataFrame(docs)
+            df = df.copy()
             df["date"] = pd.to_datetime(dict(year=df["year"], month=df["month"], day=df["day"]))
             df = df.sort_values("date")
 
-            fig2, ax2 = plt.subplots()
-            for direction, group in df.groupby("direction"):
-                ax2.plot(group["date"], group["total_gwh"], marker="o", markersize=3, label=direction)
-            ax2.set_xlabel("Date")
-            ax2.set_ylabel("Energy (GWh/day)")
-            ax2.set_title(f"{CONNECTION_LABELS.get(connection, connection)} - {year}")
-            ax2.legend()
-            fig2.autofmt_xdate(rotation=45)
-            st.pyplot(fig2)
+            fig2 = go.Figure()
+            for i, (direction, group) in enumerate(df.groupby("direction")):
+                fig2.add_trace(go.Scatter(
+                    x=group["date"], y=group["total_gwh"], mode="lines+markers",
+                    marker=dict(size=5), line=dict(color=CATEGORICAL[i % len(CATEGORICAL)]),
+                    name=direction,
+                ))
+            fig2.update_layout(
+                title=f"{CONNECTION_LABELS.get(connection, connection)} - {year}",
+                xaxis_title="Date", yaxis_title="Energy (GWh/day)", hovermode="x unified", height=420,
+            )
+            st.plotly_chart(fig2, use_container_width=True)
 
 with st.expander("About this data"):
     st.markdown(

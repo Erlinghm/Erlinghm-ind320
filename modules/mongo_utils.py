@@ -1,28 +1,59 @@
-"""MongoDB connection helper for the Streamlit app.
-
-Uses st.secrets rather than python-dotenv/.env since this is the app's own runtime config - locally
-from .streamlit/secrets.toml, and from Streamlit Community Cloud's own
-secrets store once deployed (never from a value checked into GitHub).
+"""Streamlit-free MongoDB read for the project - deliberately the ONLY
+thing in here. modules/app_utils.py is the project's one designated
+Streamlit-coupled module (see its own docstring); the Streamlit-cached
+MongoClient/collection helpers used to live here too, which meant just
+IMPORTING this module (even without calling any of the cached functions)
+pulled in `streamlit` and printed its "No runtime found"/"missing
+ScriptRunContext" warnings in the notebook - importing streamlit at all is
+enough to trigger that, not just calling an st.cache_* function. Moved
+those into app_utils.py instead so this module has no streamlit import at
+all, and is genuinely safe to import from the notebook with no warnings.
 """
 
+import os
+
 import certifi
-import streamlit as st
+import pandas as pd
+from dotenv import load_dotenv
 from pymongo import MongoClient
 
+load_dotenv()
 
-@st.cache_resource # Cache the MongoClient across reruns
-def get_mongo_client():
-    """Cached across reruns - a MongoClient is not serializable, so this
-    needs st.cache_resource rather than st.cache_data.
+
+def get_weather_hourly_avg(region_label, year):
+    """The pre-aggregated hourly weather average for one region/year, read
+    straight from MongoDB via a plain (non-Streamlit-cached) client - see
+    modules/app_utils.py's get_weather_hourly_avg_from_mongo() for the
+    st.cache_data-wrapped version the Streamlit app actually uses; this is
+    the Streamlit-free version of the same read, for the notebook.
+
+    Returns None if that region/year isn't in MongoDB yet (incomplete or
+    missing entirely) - not an error, just means the caller should fall
+    back to the open-meteo download + on-the-fly aggregation instead.
+
+    Filters by year in pandas rather than with a Mongo-side string range
+    query on `timestamp` - see the long version of this comment in
+    app_utils.py; the short version is that the pipeline's timestamp
+    strings aren't reliably tz-aware or naive, so a client-side filter
+    after fetching is the robust option.
     """
-    return MongoClient(st.secrets["MONGODB_URI"], tlsCAFile=certifi.where())
+    expected_hours = len(pd.date_range(f"{year}-01-01", f"{year}-12-31 23:00", freq="h"))
+    client = MongoClient(os.getenv("MONGODB_URI"), tlsCAFile=certifi.where())
+    docs = list(client["ind320"]["weather_hourly_avg"].find({"region": region_label}))
+    if not docs:
+        return None
 
-# Get the MongoDB collection for cross-border data (daily totals, not monthly -
-# renamed from crossborder_monthly once the aggregation moved to daily granularity)
-def get_crossborder_collection(): 
-    return get_mongo_client()["ind320"]["crossborder_daily"]
+    df = pd.DataFrame(docs)
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    if df["timestamp"].dt.tz is not None:
+        df["timestamp"] = df["timestamp"].dt.tz_localize(None)
+    df = df[df["timestamp"].dt.year == year]
+    if len(df) != expected_hours:
+        return None
 
-# Get the MongoDB collection for pre-aggregated hourly weather averages -
-# built by the Cassandra -> Spark -> MongoDB pipeline in the Part 3 notebook
-def get_weather_collection():
-    return get_mongo_client()["ind320"]["weather_hourly_avg"]
+    df = df.set_index("timestamp").rename(columns={
+        "temperature_2m_avg": "temperature_2m",
+        "precipitation_avg": "precipitation",
+        "snowfall_avg": "snowfall",
+    })
+    return df[["temperature_2m", "precipitation", "snowfall"]].sort_index()
