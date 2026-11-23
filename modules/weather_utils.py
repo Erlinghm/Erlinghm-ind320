@@ -128,31 +128,6 @@ def _points_hash(region_points):
     return hashlib.md5(coords.tobytes()).hexdigest()[:8]
 
 
-def weather_cache_status(region_id, points_df, start_date, end_date, region_col="region", cache_dir=CACHE_DIR):
-    """How many of fetch_weather_for_region's chunks for these exact
-    arguments are already cached on disk, without making any network calls -
-    lets a UI show "already downloaded" (or how much of it is) before
-    committing to a real fetch, which can be slow and is subject to
-    open-meteo's daily quota.
-
-    Returns (cached_chunks, total_chunks). (0, 0) if the region has no
-    sampled points at all (shouldn't happen for a real shapefile region).
-    """
-    region_points = points_df.loc[points_df[region_col] == region_id]
-    if region_points.empty:
-        return 0, 0
-
-    cache_dir = Path(cache_dir)
-    points_hash = _points_hash(region_points)
-    chunk_starts = range(0, len(region_points), CHUNK_SIZE)
-    total_chunks = len(chunk_starts)
-    cached_chunks = sum(
-        1 for chunk_start in chunk_starts
-        if (cache_dir / f"{region_id}_{points_hash}_{start_date}_{end_date}_{chunk_start:05d}.csv").exists()
-    )
-    return cached_chunks, total_chunks
-
-
 def fetch_weather_for_region(region_id, points_df, start_date, end_date, region_col="region", timeout=90, cache_dir=CACHE_DIR):
     """Hourly ERA5 historical weather (via open-meteo) for every point
     sampled for one region.
@@ -295,3 +270,33 @@ def fetch_weather_for_region(region_id, points_df, start_date, end_date, region_
         time.sleep(PAUSE_SECONDS)  # stay well clear of the rate limit
 
     return pd.concat(chunk_frames, ignore_index=True)
+
+
+def get_weather_hourly_avg(region_label, points_df, year, region_col="region"):
+    """Streamlit-free hourly weather average (temperature/precipitation/
+    snowfall) for one region/year - fetches (or reuses the disk cache from)
+    fetch_weather_for_region() above and averages across all its sampled
+    points per timestamp.
+
+    This is the one place the actual "average weather across a region"
+    computation lives. modules/app_utils.py's get_weather_hourly_avg_live()
+    is a thin st.cache_data wrapper around this - kept Streamlit-free here
+    (not there) for the same reason this whole module always has been: it
+    needs to stay directly importable from the notebook with no streamlit
+    dependency at all (even just `import streamlit`, without calling
+    anything st.cache_*-decorated, is enough to print "No runtime found"
+    warnings outside a real app - see modules/app_utils.py's own docstring).
+
+    Replaces the old MongoDB-backed modules/mongo_utils.py version (Part 4
+    switched the whole app from "pre-download once via Cassandra -> Spark
+    -> MongoDB, read from Mongo if present" to "fetch live from open-meteo
+    on demand, every time" - see get_weather_hourly_avg_live()'s docstring
+    in app_utils.py for why). Unlike that version, this never returns None
+    for "not cached yet" - it always fetches (hitting disk cache for chunks
+    already downloaded) and can raise RuntimeError on a genuine network/
+    quota failure, which callers should catch and show to the user.
+    """
+    weather = fetch_weather_for_region(region_label, points_df, f"{year}-01-01", f"{year}-12-31", region_col=region_col)
+    hourly_avg = weather.groupby("timestamp")[HOURLY_VARIABLES].mean()
+    hourly_avg.index = pd.to_datetime(hourly_avg.index)
+    return hourly_avg.sort_index()

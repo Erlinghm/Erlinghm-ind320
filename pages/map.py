@@ -4,21 +4,27 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from modules.app_utils import get_weather_hourly_avg_live
 from modules.data_utils import filter_area_type, load_data
-from modules.mongo_utils import get_weather_hourly_avg
 from modules.theme import SEQUENTIAL
 
 st.title("Interactive Area Map")
 st.caption(
     "Click an area to select it - the selection is stored and reused as the "
     "default area on the Correlation and Forecasting pages. GeoJSON converted "
-    "from the project's shapefiles - see the Part 4 notebook. NO (the national "
-    "total) has no region shapefile, so it isn't on this map - EL and VASS cover "
-    "the \"Price area\"/\"Water area\" cases from the assignment, and either one "
-    "can also be coloured by a weather property instead."
+    "from the project's shapefiles - see the Part 4 notebook. NO is the national "
+    "total, drawn as all 5 EL zones dissolved into one outline (it has no region "
+    "shapefile of its own); EL and VASS cover the \"Price area\"/\"Water area\" "
+    "cases from the assignment, and either one can also be coloured by a weather "
+    "property instead."
 )
 
-GEOJSON_PATHS = {"EL": "data/geojson/budomrader.geojson", "VASS": "data/geojson/vass_regioner.geojson"}
+GEOJSON_PATHS = {
+    "EL": "data/geojson/budomrader.geojson",
+    "VASS": "data/geojson/vass_regioner.geojson",
+    "NO": "data/geojson/national.geojson",  # all 5 EL zones dissolved into one outline
+}
+AREA_TYPE_LABELS = {"EL": "EL - price zones", "VASS": "VASS - watercourse zones", "NO": "NO - national total"}
 
 
 @st.cache_data
@@ -32,11 +38,18 @@ def load_geojson(area_type):
 col1, col2 = st.columns(2)
 with col1:
     area_type = st.selectbox(
-        "Area type (shapefile)", options=["EL", "VASS"],
-        format_func=lambda t: f"{t} - {'price zones' if t == 'EL' else 'watercourse zones'}",
+        "Area type (shapefile)", options=["EL", "VASS", "NO"], format_func=lambda t: AREA_TYPE_LABELS[t],
     )
 with col2:
-    color_by = st.radio("Colour by", ["Reservoir fill degree", "Weather property"], horizontal=True)
+    if area_type == "NO":
+        # The national total has no region shapefile of its own to sample weather
+        # from (it's just all 5 EL zones dissolved into one outline), so only
+        # fill degree makes sense to colour by here - same limitation as the
+        # Weather Download/Outliers pages already have for NO.
+        st.caption("Only fill degree is available for the national total - no region shapefile to sample weather from.")
+        color_by = "Reservoir fill degree"
+    else:
+        color_by = st.radio("Colour by", ["Reservoir fill degree", "Weather property"], horizontal=True)
 
 geojson, labels = load_geojson(area_type)
 
@@ -53,8 +66,6 @@ selected_week = st.select_slider(
 # whatever week is selected here, keeping the two pages' timeframes in sync.
 st.session_state["map_selected_week"] = selected_week
 
-region_prefix = "NO" if area_type == "EL" else "VASS"
-
 if color_by == "Reservoir fill degree":
     week_data = areas.loc[areas.index == selected_week, ["area_number", "fill_degree"]]
     values = week_data.set_index("area_number")["fill_degree"]
@@ -63,9 +74,13 @@ else:
     weather_var = st.selectbox("Weather property", ["temperature_2m", "precipitation", "snowfall"])
     week_start, week_end = selected_week, selected_week + pd.Timedelta(days=6)
     rows = {}
-    for area_number in sorted(areas["area_number"].unique()):
-        hourly = get_weather_hourly_avg(f"{region_prefix}{area_number}", selected_week.year)
-        if hourly is not None:
+    with st.spinner("Fetching live weather for each zone from open-meteo (cached after the first visit)..."):
+        for area_number in sorted(areas["area_number"].unique()):
+            try:
+                hourly = get_weather_hourly_avg_live(area_type, area_number, selected_week.year)
+            except RuntimeError as e:
+                st.warning(f"Couldn't fetch weather for {area_type}{area_number}: {e}")
+                continue
             week_hourly = hourly.loc[week_start:week_end]
             if len(week_hourly):
                 rows[area_number] = week_hourly[weather_var].mean()
@@ -73,9 +88,10 @@ else:
     colorbar_title = weather_var
     if values.empty:
         st.info(
-            f"No weather data cached in MongoDB yet for any {area_type} zone in the week of "
-            f"{selected_week:%Y-%m-%d} - try the Weather Download page for a zone/year first, "
-            f"or switch back to \"Reservoir fill degree\"."
+            f"No weather data available for any {area_type} zone in the week of "
+            f"{selected_week:%Y-%m-%d} (open-meteo's historical archive only goes up "
+            f"to a few days ago) - try an earlier week, or switch back to "
+            f"\"Reservoir fill degree\"."
         )
         st.stop()
 

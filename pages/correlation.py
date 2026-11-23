@@ -3,8 +3,8 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 from modules.analysis_utils import sliding_window_correlation
+from modules.app_utils import get_weather_hourly_avg_live
 from modules.data_utils import filter_area_type, load_data
-from modules.mongo_utils import get_weather_hourly_avg
 from modules.theme import CATEGORICAL, CHROME
 
 st.title("Weather ↔ Reservoir Correlation")
@@ -18,19 +18,36 @@ area_type = st.session_state.get("map_selected_area_type", "EL")
 area_number = st.session_state.get("map_selected_area", 3 if area_type == "EL" else 1)
 st.caption(f"Area: **{area_type} {area_number}** - pick a different one on the Interactive Area Map page.")
 
-region_prefix = "NO" if area_type == "EL" else "VASS"
-region_label = f"{region_prefix}{area_number}"
+if area_type == "NO":
+    st.info(
+        "Weather-based correlation isn't available for the national total - it has no "
+        "region shapefile to sample weather from. Pick an EL price zone or a VASS "
+        "watercourse zone on the Interactive Area Map page."
+    )
+    st.stop()
+
+region_label = f"{'NO' if area_type == 'EL' else 'VASS'}{area_number}"
 
 col1, col2 = st.columns(2)
 with col1:
     weather_var = st.selectbox("Weather property", ["temperature_2m", "precipitation", "snowfall"])
 with col2:
-    year = st.selectbox("Year", options=[2024], help="Only 2024 has weather data available so far.")
+    year = st.selectbox("Year", options=[2024], help="Weather is fetched live from open-meteo for this one calendar year.")
 
-hourly = get_weather_hourly_avg(region_label, year)
-if hourly is None:
-    st.info(f"No weather data cached in MongoDB yet for {region_label}, {year} - run the Weather Download page first.")
-    st.stop()
+st.caption(
+    f"Weather is only fetched for **{year}** (one live open-meteo request) - the top panel below "
+    f"shows {region_label}'s full fill-degree history for context, but the weather and correlation "
+    f"panels only have real values inside {year}; everything outside that one year is blank."
+)
+
+with st.spinner(f"Fetching live weather for {region_label}, {year} from open-meteo (cached after the first visit)..."):
+    try:
+        hourly = get_weather_hourly_avg_live(area_type, area_number, year)
+    except RuntimeError as e:
+        st.error(str(e))
+        if e.__cause__ is not None:
+            st.caption(f"Underlying cause: {e.__cause__!r}")
+        st.stop()
 
 weekly_weather = hourly[weather_var].resample("W").mean()
 

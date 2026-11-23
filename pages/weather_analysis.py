@@ -1,21 +1,13 @@
-import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
 from modules.analysis_utils import lof_anomalies, spc_outliers
-from modules.app_utils import (
-    area_selector,
-    get_weather_hourly_avg_from_mongo,
-    get_weather_region_label_and_points,
-)
+from modules.app_utils import area_selector, get_weather_hourly_avg_live
 from modules.theme import CATEGORICAL, STATUS
-from modules.weather_utils import fetch_weather_for_region, weather_cache_status
 
 st.title("Weather Outliers and Anomalies")
 
-# Shared sidebar area selector (modules/app_utils.py) - same area as the
-# Weather Download page, per the assignment's instruction to let the choice
-# of downloaded data depend on the magasinstatistikk selector.
+# Shared sidebar area selector (modules/app_utils.py).
 area_type, area_number = area_selector()
 
 if area_type == "NO":
@@ -26,41 +18,19 @@ if area_type == "NO":
     )
     st.stop()
 
-region_label, all_points = get_weather_region_label_and_points(area_type, area_number)
+region_label = f"{'NO' if area_type == 'EL' else 'VASS'}{area_number}"
 year = 2024
-start_date, end_date = f"{year}-01-01", f"{year}-12-31"
 
-# Try MongoDB first - the Cassandra -> Spark -> MongoDB pipeline in the Part 3
-# notebook pre-aggregates this, so when it's there this is a fast, no-network
-# read that works anywhere, including Streamlit Community Cloud (which has no
-# persistent local disk for the CSV cache the fallback below relies on).
-hourly_avg = get_weather_hourly_avg_from_mongo(region_label, year)
-source = "MongoDB"
-
-if hourly_avg is None:
-    # Not in MongoDB yet for this zone/year - fall back to the original
-    # open-meteo CSV cache + on-the-fly pandas aggregation.
-    cached, total = weather_cache_status(region_label, all_points, start_date, end_date)
-
-    if cached < total:
-        st.warning(
-            f"Weather for {region_label}, {year} isn't available in MongoDB, and isn't "
-            f"fully downloaded to disk either ({cached}/{total} chunk(s) cached)."
-        )
-        st.page_link("pages/weather_download.py", label="Go to the Weather Download page", icon="⬇️")
+with st.spinner(f"Fetching live weather for {region_label}, {year} from open-meteo (cached after the first visit)..."):
+    try:
+        hourly_avg = get_weather_hourly_avg_live(area_type, area_number, year)
+    except RuntimeError as e:
+        st.error(str(e))
+        if e.__cause__ is not None:
+            st.caption(f"Underlying cause: {e.__cause__!r}")
         st.stop()
 
-    # Fully cached, so this is a disk-only read - no network call, safe to run
-    # on every page visit/rerun (unlike the Weather Download page's button,
-    # which is the only place that can trigger a new, potentially slow,
-    # open-meteo request).
-    weather = fetch_weather_for_region(region_label, all_points, start_date, end_date)
-    hourly_avg = weather.groupby("timestamp")[["temperature_2m", "precipitation", "snowfall"]].mean()
-    hourly_avg.index = pd.to_datetime(hourly_avg.index)
-    hourly_avg = hourly_avg.sort_index()
-    source = "local disk cache"
-
-st.caption(f"{len(hourly_avg)} hourly readings for **{region_label}**, {year} (from {source}).")
+st.caption(f"{len(hourly_avg)} hourly readings for **{region_label}**, {year} (fetched live from open-meteo).")
 
 WEATHER_VARS = ["temperature_2m", "precipitation", "snowfall"]
 

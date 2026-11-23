@@ -5,14 +5,15 @@ whole script on every interaction" model doesn't repeat expensive work.
 
 Kept separate from data_utils.py/weather_utils.py/analysis_utils.py on
 purpose - those stay importable and testable without Streamlit installed
-(as used directly in the Part 3 notebook); this module is the only place
+(as used directly in the Part 4 notebook); this module is the only place
 that couples them to Streamlit. For the same reason, the Streamlit-cached
-MongoClient/collection helpers (get_mongo_client, get_crossborder_collection)
-live here too, not in modules/mongo_utils.py - that module is meant to be
-importable from the notebook with NO streamlit dependency at all, and even
-just `import streamlit` (not calling anything st.cache_*-decorated) is
-enough to print its "No runtime found"/"missing ScriptRunContext" warnings
-outside a real app.
+MongoClient/collection helpers (get_mongo_client, get_crossborder_collection -
+still used for the cross-border data, which genuinely does stay in MongoDB;
+weather is no longer read from Mongo at all, see get_weather_hourly_avg_live()
+below) live here, and even just `import streamlit` (not calling anything
+st.cache_*-decorated) is enough to print its "No runtime found"/"missing
+ScriptRunContext" warnings outside a real app, which is why weather_utils.py
+stays streamlit-free.
 """
 
 from pathlib import Path
@@ -23,9 +24,12 @@ import streamlit as st
 from pymongo import MongoClient
 
 from modules.data_utils import load_data, filter_area_type
-from modules.mongo_utils import get_weather_hourly_avg
 from modules.theme import register_template
-from modules.weather_utils import sample_points_per_region, sample_points_per_vass_zone
+from modules.weather_utils import (
+    get_weather_hourly_avg,
+    sample_points_per_region,
+    sample_points_per_vass_zone,
+)
 
 # Registers the shared Plotly template as a side effect of importing this
 # module - every page already imports something from here (area_selector,
@@ -106,11 +110,20 @@ def get_fill_degree_series(area_type, area_number):
 
 
 @st.cache_data
-def get_el_sampled_points(seed=0, n_points=1000):
-    """The 1000 sampled lon/lat points per EL price zone (NO1-NO5), from
-    the budomrader shapefile - cached because sampling (and reading the
+def get_el_sampled_points(seed=0, n_points=50):
+    """The sampled lon/lat points per EL price zone (NO1-NO5), from the
+    budomrader shapefile - cached because sampling (and reading the
     shapefile) is pure CPU/disk work with a fixed seed, so it only needs to
     run once per session rather than on every rerun.
+
+    50 points per zone, not Part 3's original 1000 - this now backs live,
+    on-demand fetches (get_weather_hourly_avg_live() below) triggered
+    inline whenever a page needs weather, rather than a one-off manual
+    "download" button press, so it needs to stay fast: 50 points fits in
+    one open-meteo request (weather_utils.CHUNK_SIZE=100) instead of ~10,
+    and nearby points are spatially correlated anyway, so the extra 950
+    points bought little additional averaging accuracy for a region-wide
+    mean.
     """
     points = sample_points_per_region(BUDOMRADER_SHP, "budomr", n_points=n_points, seed=seed)
     points["region"] = points["region"].str.replace(" ", "")  # "NO 3" -> "NO3"
@@ -118,11 +131,12 @@ def get_el_sampled_points(seed=0, n_points=1000):
 
 
 @st.cache_data
-def get_vass_sampled_points(seed=0, n_points=1000):
+def get_vass_sampled_points(seed=0, n_points=50):
     """The sampled lon/lat points per VASS watercourse zone (East=RS+RØ,
     West=RV, North=RM+RN - see modules/weather_utils.py), labeled
     VASS1/VASS2/VASS3 to match magasinstatistikk's own omrnr - cached for
-    the same reason as get_el_sampled_points.
+    the same reason as get_el_sampled_points, including the smaller
+    n_points default (see its docstring).
     """
     return sample_points_per_vass_zone(NVE_REGIONER_SHP, n_points=n_points, seed=seed)
 
@@ -142,23 +156,43 @@ def get_weather_region_label_and_points(area_type, area_number):
 
 
 @st.cache_data(ttl=3600)
-def get_weather_hourly_avg_from_mongo(region_label, year):
-    """Thin st.cache_data wrapper around mongo_utils.get_weather_hourly_avg()
-    - see there for the actual Mongo read/validation logic. Kept as a
-    separate, Streamlit-cached entry point here (rather than just calling
-    the plain function directly from the pages) so repeated page
-    reruns/navigations don't re-hit MongoDB for a region/year that's
-    already been read once this session - this is what lets the weather
-    pages work on Streamlit Community Cloud, which has no persistent local
-    disk for the CSV cache the fallback path relies on.
+def get_weather_hourly_avg_live(area_type, area_number, year):
+    """Hourly weather (temperature/precipitation/snowfall), averaged across
+    a small sample of points in the given EL/VASS area, fetched live from
+    open-meteo - the one function every weather-dependent page (Map,
+    Weather Outliers & Anomalies, Correlation, Forecasting) now calls.
+
+    Replaces the Part 3 Cassandra -> Spark -> MongoDB pre-aggregation
+    pipeline entirely: that required each student to have already run
+    their own MongoDB-seeding pipeline before the app's weather pages would
+    show anything, which classmates comparing notes turned out not to have
+    done the same way - only the cross-border data (get_crossborder_docs
+    below) is genuinely shared/pre-aggregated that way. So as of Part 4,
+    weather is fetched straight from open-meteo on demand instead, with no
+    separate "download" page or step.
+
+    st.cache_data(ttl=3600) here is what keeps this fast on repeat
+    visits/reruns within a session - the underlying fetch_weather_for_region()
+    (modules/weather_utils.py) also disk-caches each chunk, so even a fresh
+    session reuses previously-downloaded points rather than re-hitting
+    open-meteo, but going through this cache avoids even that disk read on
+    every rerun of a page.
+
+    Raises RuntimeError (propagated from fetch_weather_for_region) if
+    open-meteo's request quota is exhausted or the request fails after
+    retries - callers should wrap this in a try/except and show st.error.
+    Returns None for area_type == "NO" (the national total has no region
+    shapefile to sample weather from at all) - callers are expected to gate
+    on that themselves before calling, matching get_weather_region_label_and_points.
     """
-    return get_weather_hourly_avg(region_label, year)
+    region_label, points = get_weather_region_label_and_points(area_type, area_number)
+    return get_weather_hourly_avg(region_label, points, year)
 
 
 @st.cache_resource  # Cache the MongoClient across reruns - it isn't serializable, so this
 # needs st.cache_resource rather than st.cache_data. Lives here, not
-# modules/mongo_utils.py, for the same reason the function below does -
-# see this module's own docstring and mongo_utils.py's.
+# modules/weather_utils.py, for the same reason this module's own
+# docstring gives.
 def get_mongo_client():
     return MongoClient(st.secrets["MONGODB_URI"], tlsCAFile=certifi.where())
 
@@ -166,10 +200,8 @@ def get_mongo_client():
 def get_crossborder_collection():
     """The MongoDB collection for cross-border data (daily totals, not
     monthly - renamed from crossborder_monthly once the aggregation moved
-    to daily granularity). Kept here rather than in modules/mongo_utils.py
-    - which is meant to stay import-safe from the notebook with no
-    Streamlit dependency at all - since this goes through the
-    Streamlit-cached get_mongo_client() above.
+    to daily granularity). Kept here, not in a Streamlit-free module, since
+    this goes through the Streamlit-cached get_mongo_client() above.
     """
     return get_mongo_client()["ind320"]["crossborder_daily"]
 

@@ -11,22 +11,21 @@ st.set_page_config(page_title="IND320 - Norwegian Reservoirs", layout="wide")
 # prefixes to control order - this list does that instead.
 pg = st.navigation({
     "": [
-        st.Page("pages/home.py", title="Home", icon="🏠", default=True),
+        st.Page("pages/home.py", title="Home", default=True),
     ],
-    "📊 Data Overview": [
-        st.Page("pages/reservoir_price.py", title="Reservoir & Price Data", icon="📈"),
-        st.Page("pages/map.py", title="Interactive Area Map", icon="🗺️"),
-        st.Page("pages/crossborder.py", title="Cross-border Exchange", icon="🔌"),
-        st.Page("pages/currency.py", title="Currency Rates", icon="💱"),
-        st.Page("pages/weather_download.py", title="Weather Download", icon="⬇️"),
+    "Data Overview": [
+        st.Page("pages/reservoir_price.py", title="Reservoir & Price Data"),
+        st.Page("pages/map.py", title="Interactive Area Map"),
+        st.Page("pages/crossborder.py", title="Cross-border Exchange"),
+        st.Page("pages/currency.py", title="Currency Rates"),
     ],
-    "🔍 Patterns & Anomalies": [
-        st.Page("pages/fill_degree.py", title="Fill-Degree Decomposition", icon="📉"),
-        st.Page("pages/weather_analysis.py", title="Weather Outliers & Anomalies", icon="🌦️"),
-        st.Page("pages/correlation.py", title="Weather ↔ Reservoir Correlation", icon="🔗"),
+    "Patterns & Anomalies": [
+        st.Page("pages/fill_degree.py", title="Fill-Degree Decomposition"),
+        st.Page("pages/weather_analysis.py", title="Weather Outliers & Anomalies"),
+        st.Page("pages/correlation.py", title="Weather ↔ Reservoir Correlation"),
     ],
-    "🔮 Forecasting": [
-        st.Page("pages/forecast.py", title="Water Magazine Filling Forecast", icon="🔮"),
+    "Forecasting": [
+        st.Page("pages/forecast.py", title="Water Magazine Filling Forecast"),
     ],
 })
 pg.run()

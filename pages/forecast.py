@@ -2,9 +2,9 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from modules.app_utils import get_weather_hourly_avg_live
 from modules.data_utils import filter_area_type, load_data
 from modules.forecast_utils import forecast_fill_degree
-from modules.mongo_utils import get_weather_hourly_avg
 from modules.norgesbank_utils import fetch_exchange_rates
 from modules.theme import CATEGORICAL
 
@@ -23,8 +23,9 @@ st.caption(f"Area: **{area_type} {area_number}** - pick a different one on the I
 
 if area_type != "EL":
     st.warning(
-        "VASS watercourse zones have no fill_degree series of their own in the "
-        "NVE data - switch the Map page's area type to EL to forecast a price zone."
+        "Only EL price zones can be forecast right now - VASS watercourse zones and "
+        "the NO national total aren't wired up here yet. Switch the Map page's area "
+        "type to EL to forecast a price zone."
     )
     st.stop()
 
@@ -108,8 +109,11 @@ with st.spinner("Training the online model and forecasting..."):
     future_dates = pd.date_range(as_of, periods=horizon_weeks + 1, freq="7D")[1:]
 
     if any(s in exogenous_sources for s in ("Temperature", "Precipitation", "Snowfall")):
-        hourly = get_weather_hourly_avg(region_label, as_of.year)
-        if hourly is not None:
+        try:
+            hourly = get_weather_hourly_avg_live("EL", area_number, as_of.year)
+        except RuntimeError as e:
+            st.warning(f"Couldn't fetch weather for {region_label}, {as_of.year} ({e}) - weather exogenous sources skipped.")
+        else:
             weekly = hourly.resample("W").mean()
             name_map = {"Temperature": "temperature_2m", "Precipitation": "precipitation", "Snowfall": "snowfall"}
             for source in exogenous_sources:
@@ -117,8 +121,6 @@ with st.spinner("Training the online model and forecasting..."):
                     series = weekly[name_map[source]]
                     exogenous[source] = series
                     future_exogenous[source] = pd.Series(series.iloc[-1], index=future_dates)
-        else:
-            st.warning(f"No cached weather data for {region_label}, {as_of.year} - weather exogenous sources skipped.")
 
     if "EUR/USD rate" in exogenous_sources:
         try:
