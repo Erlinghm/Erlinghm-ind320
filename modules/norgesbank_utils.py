@@ -1,16 +1,18 @@
 """Helpers for downloading currency exchange rates from Norges Bank's (the
 Norwegian central bank) open data API.
 
-Verified against a real response on 2026-11-20 (EUR+USD vs NOK, Jan 2024):
-Norges Bank's SDMX-JSON uses the series key "<FREQ idx>:<BASE_CUR idx>:
-<QUOTE_CUR idx>:<TENOR idx>", with the index order given by
-data.structure.dimensions.series (not fixed - read it rather than assume a
-position), and observations keyed by a time INDEX (not the date itself),
-with the actual dates in data.structure.dimensions.observation[0].values.
-The "+" syntax (B.EUR+USD.NOK.SP) fetches several base currencies in one
-request. See the timezone investigation in the Part 4 notebook for a note
-on the "ECB concertation time 14:15 CET" collection attribute this response
-also carries - the quoted date itself has no time-of-day component.
+Had to dig into a real response to figure this out (EUR+USD vs NOK, Jan
+2024, checked 2026-11-20): Norges Bank's SDMX-JSON uses the series key
+"<FREQ idx>:<BASE_CUR idx>:<QUOTE_CUR idx>:<TENOR idx>", but the index
+order comes from data.structure.dimensions.series and isn't fixed, so it
+has to be read from the response rather than assumed. Observations are
+keyed by a time INDEX too, not the date itself - the actual dates are in
+data.structure.dimensions.observation[0].values. The "+" syntax
+(B.EUR+USD.NOK.SP) fetches several base currencies in one request.
+
+See the timezone investigation in the Part 4 notebook for the "ECB
+concertation time 14:15 CET" collection attribute this response also
+carries - the date itself has no time-of-day component, though.
 """
 
 import pandas as pd

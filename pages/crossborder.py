@@ -6,16 +6,14 @@ from modules.app_utils import get_crossborder_docs
 from modules.entsoe_utils import CONNECTION_LABELS, CONNECTIONS
 from modules.theme import CATEGORICAL
 
-# Title and caption
 st.title("Cross-border flows")
 st.caption(
     "Norway's physical electricity exchange with its directly connected neighbours, "
     "via the ENTSO-E Transparency Platform."
 )
 
-# The two full years fetched for this assignment - see the Part 2 notebook. Hardcoded
-# rather than discovered from MongoDB, so a stray document for some other year could
-# never end up as a selectable option.
+# Hardcoded rather than discovered from MongoDB, so a stray document for
+# some other year never ends up as a selectable option.
 YEARS = [2024, 2025]
 
 col_left, col_right = st.columns(2)
@@ -57,9 +55,8 @@ with col_right:
     else:
         df = year_df[year_df["month"].isin(selected_months)]
         if df.empty:
-            # A connection/year can have gaps for a particular month (ENTSO-E data
-            # isn't always complete) - this used to crash with a KeyError on an
-            # empty DataFrame instead of showing this message.
+            # A connection/year can have gaps for a given month - this used to
+            # crash with a KeyError on an empty DataFrame before this check.
             st.info("No data for the selected months.")
         else:
             df = df.copy()

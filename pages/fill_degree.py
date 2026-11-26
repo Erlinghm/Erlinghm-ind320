@@ -9,9 +9,8 @@ from modules.theme import CATEGORICAL, SEQUENTIAL
 
 st.title("Fill-Degree Decomposition")
 
-# Shared sidebar area selector (modules/app_utils.py) - this page works for
-# any area_type (EL/NO/VASS), unlike the weather pages below, since it only
-# needs magasinstatistikk's own fill_degree series, not a weather download.
+# This page works for any area_type (EL/NO/VASS), unlike the weather pages
+# - it only needs magasinstatistikk's own fill_degree series, no weather.
 area_type, area_number = area_selector()
 series = get_fill_degree_series(area_type, area_number)
 

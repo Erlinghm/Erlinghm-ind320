@@ -18,9 +18,9 @@ st.caption(
     "stay in sync."
 )
 
-# No area widget on this page, so just read the durable, cross-page
-# selection directly (see area_selector()'s _seed() docstring for why it's
-# "sel_area_type" etc. and not "area_type" etc.).
+# No area widget here - just read the durable, cross-page selection
+# directly (see _seed()'s docstring for why it's "sel_area_type" etc,
+# not "area_type" etc).
 area_type = st.session_state.get("sel_area_type", "EL")
 if area_type == "EL":
     area_number = st.session_state.get("sel_area_number_el", 3)
@@ -178,9 +178,9 @@ if quantile_width != "None":
         name=f"{quantile_width} interval", hoverinfo="skip",
     ))
 
-# Frame-by-frame reveal of the forecast (one point further per frame), per
-# the assignment's "plot the results using Plotly animation" ask - the
-# observed history is static, only the forecast + band grow frame to frame.
+# Frame-by-frame reveal of the forecast (one point further per frame) -
+# the assignment asks for a Plotly animation here. Observed history stays
+# static, only the forecast + band grow frame to frame.
 frames = []
 for i in range(1, len(forecast) + 1):
     partial = forecast.iloc[:i]

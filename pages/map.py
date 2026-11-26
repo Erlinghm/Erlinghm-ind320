@@ -39,11 +39,10 @@ def load_geojson(area_type):
 
 col1, col2 = st.columns(2)
 with col1:
-    # Reseed from the durable "sel_area_type" before creating this widget -
-    # Streamlit resets a keyed widget to its default whenever it's rendered
-    # on a different page than last time (see area_selector()'s _seed() for
-    # why), so without this, switching here from the sidebar's own area-type
-    # radio (a different page, same key) would silently snap back to EL.
+    # Reseed from "sel_area_type" before creating this widget - a keyed
+    # widget resets to its default whenever it's rendered on a different
+    # page (see _seed()'s docstring), so without this, coming here from the
+    # sidebar's own area-type radio would just snap back to EL.
     _seed("area_type", "sel_area_type", "EL")
     area_type = st.selectbox(
         "Area type (shapefile)", options=["EL", "VASS", "NO"], format_func=lambda t: AREA_TYPE_LABELS[t],
@@ -67,13 +66,11 @@ data = load_data()
 areas = filter_area_type(data, area_type)
 weeks = sorted(areas.index.unique())
 
-# A lot of weekly options to choose from (magasinstatistikk goes back to the
-# late 1990s) - default to the most recent week rather than the oldest, EXCEPT
-# in weather mode: open-meteo's historical archive lags well behind today (we
-# saw it still miss a week 11 days old), so defaulting to weeks[-1] there just
-# lands on the "no weather data yet" message every time. ~10 weeks back is a
-# safer bet for an out-of-the-box working default; the slider can still be
-# moved all the way to the latest week, which just surfaces that same message.
+# Default to the most recent week, except in weather mode - open-meteo's
+# archive lags well behind today (saw it miss a week 11 days old), so
+# weeks[-1] there just lands on "no weather data yet" every time. ~10
+# weeks back works out of the box; the slider can still go all the way to
+# the latest week, it'll just show that same message.
 default_week = weeks[-1] if color_by == "Reservoir fill degree" else weeks[max(0, len(weeks) - 11)]
 selected_week = st.select_slider(
     "Week", options=weeks, value=default_week, format_func=lambda d: d.strftime("%Y-%m-%d"),
@@ -113,9 +110,8 @@ else:
 
 locations = [int(loc) for loc in values.index]
 z = list(values.to_numpy())
-# The durable, cross-page selection (see area_selector()'s _seed() docstring)
-# - reading *that*, instead of a map-only key, is what makes a sidebar pick
-# show up on the map and vice versa.
+# Read the durable, cross-page selection (see _seed()'s docstring) instead
+# of a map-only key - that's what makes a sidebar pick show up here too.
 if area_type == "EL":
     selected_area = st.session_state.get("sel_area_number_el")
 elif area_type == "VASS":
@@ -128,11 +124,10 @@ marker_line_width = [
 ]
 
 # go.Choroplethmap (not the older go.Choroplethmapbox) - the newer trace
-# built on MapLibre GL instead of Mapbox GL, so "carto-positron" is
-# actually token-free here. The Mapbox-based version shows an "API key
-# required" watermark on current Mapbox/Plotly versions even for styles
-# that are documented as not needing a token - a Mapbox-side licensing
-# change, not something fixable by just picking a different style name.
+# runs on MapLibre instead of Mapbox, so "carto-positron" is actually
+# token-free here. The Mapbox version kept showing an "API key required"
+# watermark even on styles documented as token-free - a Mapbox licensing
+# change, not something fixable by just picking a different style.
 fig = go.Figure(go.Choroplethmap(
     geojson=geojson,
     locations=locations,
@@ -158,10 +153,9 @@ event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key="a
 if event and event.get("selection", {}).get("points"):
     clicked_location = event["selection"]["points"][0]["location"]
     if clicked_location != selected_area:
-        # Only the durable sel_area_number_* half needs writing - area_type
-        # is already correct (it's this widget's own current value), and its
-        # widget was already instantiated above this run so it can't be
-        # re-set here anyway.
+        # Only sel_area_number_* needs writing - area_type's already
+        # correct (it's this widget's own value), and its widget was
+        # already created above this run so it can't be re-set here.
         if area_type == "EL":
             st.session_state["sel_area_number_el"] = clicked_location
         elif area_type == "VASS":

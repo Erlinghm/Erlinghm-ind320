@@ -1,25 +1,19 @@
-"""The app's single colour/theme definition - every Plotly chart in the app
-imports CATEGORICAL/SEQUENTIAL/DIVERGING/STATUS from here rather than letting
-Plotly pick its own defaults, so the whole app reads as one consistent
-system rather than a different palette per page.
+"""One shared colour/theme file for the whole app - every chart imports
+CATEGORICAL/SEQUENTIAL/DIVERGING/STATUS from here instead of just using
+Plotly's defaults, so pages don't end up with a different palette each.
 
-Palette validated with the data-viz skill's CVD/contrast checker before use
-(8-colour categorical: worst adjacent CVD Delta E 9.1, worst adjacent
-normal-vision Delta E 19.6 - both clear the pass floors; 3 of the 8 slots
-sit below 3:1 contrast against the chart surface, so those are never relied
-on without a visible legend/direct label, per the skill's "relief rule").
-Matches .streamlit/config.toml's [theme] section - same primary blue, same
-light surface - so Streamlit's own chrome (buttons, sliders, sidebar) and
-the Plotly charts inside it look like one app.
+Ran the categorical colours through a colourblindness checker before
+settling on these 8.
+
+Also matches the colours in .streamlit/config.toml, so the sidebar/buttons
+and the charts don't end up looking like two different apps stuck together.
 """
 
 import plotly.graph_objects as go
 import plotly.io as pio
 
-# Fixed-order categorical palette - never cycle or reassign these per chart;
-# a series keeps the same colour across pages/reruns because it keeps the
-# same *slot*, not because it keeps the same position in whatever list
-# happened to be plotted.
+# Fixed order, never cycled - area/zone 1 is always colour 1 etc, regardless
+# of what else happens to be plotted on the same chart.
 CATEGORICAL = [
     "#2a78d6",  # 1 blue      - primary series / "selected" emphasis
     "#eb6834",  # 2 orange    - secondary series / forecast median
@@ -31,21 +25,21 @@ CATEGORICAL = [
     "#e34948",  # 8 red
 ]
 
-# Single-hue blue ramp for continuous magnitude (map choropleth fill,
-# correlation-strength heatmap) - lightest = near zero, darkest = highest.
+# Blue ramp for magnitude (map colouring, correlation heatmap) - light = low,
+# dark = high.
 SEQUENTIAL = [
     [0.00, "#cde2fb"], [0.15, "#9ec5f4"], [0.30, "#6da7ec"], [0.45, "#3987e5"],
     [0.60, "#2a78d6"], [0.75, "#1c5cab"], [0.90, "#104281"], [1.00, "#0d366b"],
 ]
 
-# blue <-> red, gray midpoint - for correlation sign (sliding-window
-# correlation page) or any other +/- around zero.
+# Blue <-> red with a gray midpoint, for anything that can be +/- (the
+# correlation page mainly).
 DIVERGING = [
     [0.0, "#0d366b"], [0.25, "#2a78d6"], [0.5, "#f0efec"], [0.75, "#e34948"], [1.0, "#8a1f1f"],
 ]
 
-# Reserved for state, never reused as a plain series colour (outlier/anomaly
-# flags on the SPC/LOF plots use these, not a categorical slot).
+# Only used for outlier/anomaly markers on the SPC/LOF plots, not as a
+# regular series colour.
 STATUS = {
     "good": "#0ca30c",
     "warning": "#fab219",
@@ -65,11 +59,9 @@ CHROME = {
 
 
 def register_template(name="ind320"):
-    """Register (and make default) a Plotly template using this module's
-    colours, so every st.plotly_chart(...) in the app picks these up
-    automatically without each page having to set colours itself. Safe to
-    call more than once (e.g. once per page import) - re-registering just
-    overwrites the same template with itself.
+    """Register this module's colours as a Plotly template and make it the
+    default, so every st.plotly_chart() picks them up without each page
+    setting colours itself. Fine to call this more than once.
     """
     template = go.layout.Template(
         layout=go.Layout(

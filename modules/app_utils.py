@@ -1,19 +1,17 @@
-"""Streamlit-specific glue for the app: the shared, sidebar-rendered area
-selector used across pages, and thin st.cache_data wrappers around the
-plain functions in data_utils.py/weather_utils.py so Streamlit's "rerun the
-whole script on every interaction" model doesn't repeat expensive work.
+"""Streamlit-specific helper functions: the area selector shown in the
+sidebar, plus cached wrappers around the plain functions in
+data_utils.py/weather_utils.py so Streamlit doesn't redo expensive work on
+every rerun.
 
 Kept separate from data_utils.py/weather_utils.py/analysis_utils.py on
-purpose - those stay importable and testable without Streamlit installed
-(as used directly in the Part 4 notebook); this module is the only place
-that couples them to Streamlit. For the same reason, the Streamlit-cached
-MongoClient/collection helpers (get_mongo_client, get_crossborder_collection -
-still used for the cross-border data, which genuinely does stay in MongoDB;
-weather is no longer read from Mongo at all, see get_weather_hourly_avg_live()
-below) live here, and even just `import streamlit` (not calling anything
-st.cache_*-decorated) is enough to print its "No runtime found"/"missing
-ScriptRunContext" warnings outside a real app, which is why weather_utils.py
-stays streamlit-free.
+purpose - those need to work without Streamlit installed too (they're used
+directly in the Part 4 notebook). This is the only module that actually
+imports streamlit - even just importing it prints warnings when there's no
+real app running, which gets annoying in the notebook.
+
+The MongoDB helpers (get_mongo_client, get_crossborder_collection) live
+here too, for the same reason. Cross-border data is still read from Mongo;
+weather isn't anymore - see get_weather_hourly_avg_live() below.
 """
 
 from pathlib import Path
@@ -31,12 +29,9 @@ from modules.weather_utils import (
     sample_points_per_vass_zone,
 )
 
-# Registers the shared Plotly template as a side effect of importing this
-# module - every page already imports something from here (area_selector,
-# at least), so this is what makes every st.plotly_chart(...) in the app
-# pick up the same colours/theme without each page having to call it
-# itself. Registering more than once (e.g. Streamlit re-importing modules
-# across pages) is harmless - it just re-sets the same template.
+# Every page imports something from this module, so registering the
+# colour template here means I don't have to call it separately on each
+# page. Calling it more than once is harmless.
 register_template()
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -53,23 +48,21 @@ VASS_LABELS = {1: "East (VASS1)", 2: "West (VASS2)", 3: "North (VASS3)"}
 
 
 def _seed(widget_key, durable_key, default):
-    """Copy durable_key's value into widget_key right before widget_key's
-    widget is created, defaulting durable_key itself the first time.
+    """Copies durable_key's value into widget_key right before that
+    widget gets created (and sets a default for durable_key the first
+    time it's used).
 
-    Streamlit treats a keyed widget as a brand-new widget whenever its
-    identity changes - and a widget's page is part of its identity in a
-    multipage app - so "area_type"/"area_number_el"/"area_number_vass"
-    reset to their index=/value= default every time they're rendered on a
-    *different* page than last time (see Streamlit's "Widget behavior" docs:
-    "widget identities aren't preserved between pages" and a changed-identity
-    key gets overwritten with its default). That's exactly the bug this
-    fixes: clicking NO2 on the map set "area_number_el" directly, but the
-    very next page's Price zone selectbox still reset it to NO3.
+    Needed because of a real Streamlit gotcha: a keyed widget counts as a
+    brand new widget whenever it's rendered on a different page - which
+    page it's on is part of its "identity" - so it just resets to its
+    index=/value= default. That's why clicking NO2 on the map used to set
+    area_number_el directly, but the very next page's Price zone dropdown
+    reset it straight back to NO3.
 
-    The fix Streamlit's docs recommend is to keep the durable value under a
-    key that's never itself used as a widget's key (so it's immune to that
-    per-page reset), and re-seed the real widget key from it immediately
-    before every widget call, then write the widget's result back after.
+    Fix (this is what Streamlit's own docs recommend for exactly this):
+    keep the real value under a key that's never itself used as a widget's
+    key, so it can't get reset, and copy it into the actual widget key
+    right before that widget is created, every time.
     """
     if durable_key not in st.session_state:
         st.session_state[durable_key] = default
@@ -77,28 +70,21 @@ def _seed(widget_key, durable_key, default):
 
 
 def area_selector():
-    """Render the shared area picker in the sidebar and return
-    (area_type, area_number).
+    """Renders the area picker in the sidebar, returns (area_type, area_number).
 
-    This is deliberately global, not local to each page: it's the one
-    selector that every area-dependent page (Reservoir Data, Fill-Degree
-    Decomposition, Weather Outliers & Anomalies) reads from - so picking
-    EL/NO3 on one page keeps it picked when you switch to another, and the
-    weather pages fetch/analyse exactly the area this selector is set to,
-    per the assignment's "let the choice of downloaded data depend on the
-    selector used for the magasinstatistikk" instruction.
+    One global selector rather than one per page - Reservoir Data,
+    Fill-Degree Decomposition and Weather Outliers & Anomalies all read
+    from it, so picking EL/NO3 once keeps it picked everywhere else too
+    (the assignment wants the area picked here to also decide which
+    weather gets downloaded).
 
-    The durable state lives in "sel_area_type"/"sel_area_number_el"/
-    "sel_area_number_vass" (see _seed() above for why a *separate* set of
-    keys is needed) - that's the app's single shared area selection, full
-    stop: the Interactive Area Map page reseeds its own area-type widget
-    from "sel_area_type" and writes a click straight into "sel_area_number_el"/
-    "sel_area_number_vass", and Correlation/Forecasting read those same three
-    keys directly (they have no area widgets of their own) - so a pick made
-    anywhere (this sidebar or a map click) shows up everywhere else. Table/
-    Plot-style pages only need the area_type half (they show every area of
-    that type at once); single-series pages also need area_number to narrow
-    down to just one.
+    The actual durable value lives in "sel_area_type"/"sel_area_number_el"/
+    "sel_area_number_vass" (see _seed() above). The Map page reseeds its
+    own area-type widget from "sel_area_type" and writes a click straight
+    into the sel_area_number_* keys, and Correlation/Forecasting just read
+    those three keys directly since they don't have an area widget of
+    their own - so wherever you set it, here or on the map, it carries
+    over everywhere.
     """
     st.sidebar.markdown("### Area")
     _seed("area_type", "sel_area_type", "EL")
@@ -148,19 +134,16 @@ def get_fill_degree_series(area_type, area_number):
 
 @st.cache_data
 def get_el_sampled_points(seed=0, n_points=50):
-    """The sampled lon/lat points per EL price zone (NO1-NO5), from the
-    budomrader shapefile - cached because sampling (and reading the
-    shapefile) is pure CPU/disk work with a fixed seed, so it only needs to
-    run once per session rather than on every rerun.
+    """Sampled lon/lat points per EL price zone (NO1-NO5), from the
+    budomrader shapefile. Cached since sampling (and reading the shapefile)
+    is pure CPU/disk work with a fixed seed - only needs to run once a
+    session.
 
-    50 points per zone, not Part 3's original 1000 - this now backs live,
-    on-demand fetches (get_weather_hourly_avg_live() below) triggered
-    inline whenever a page needs weather, rather than a one-off manual
-    "download" button press, so it needs to stay fast: 50 points fits in
-    one open-meteo request (weather_utils.CHUNK_SIZE=100) instead of ~10,
-    and nearby points are spatially correlated anyway, so the extra 950
-    points bought little additional averaging accuracy for a region-wide
-    mean.
+    50 points per zone now, not the 1000 from Part 3 - back then it was a
+    one-off manual download, now it runs inline every time a page needs
+    weather, so it has to stay fast. 50 still fits in one open-meteo
+    request, and nearby points are close enough together anyway that the
+    extra 950 weren't adding much to the average.
     """
     points = sample_points_per_region(BUDOMRADER_SHP, "budomr", n_points=n_points, seed=seed)
     points["region"] = points["region"].str.replace(" ", "")  # "NO 3" -> "NO3"
@@ -169,23 +152,21 @@ def get_el_sampled_points(seed=0, n_points=50):
 
 @st.cache_data
 def get_vass_sampled_points(seed=0, n_points=50):
-    """The sampled lon/lat points per VASS watercourse zone (East=RS+RØ,
-    West=RV, North=RM+RN - see modules/weather_utils.py), labeled
-    VASS1/VASS2/VASS3 to match magasinstatistikk's own omrnr - cached for
-    the same reason as get_el_sampled_points, including the smaller
-    n_points default (see its docstring).
+    """Sampled lon/lat points per VASS watercourse zone (East=RS+RØ,
+    West=RV, North=RM+RN - see weather_utils.py), labeled VASS1/2/3 to
+    match magasinstatistikk's own numbering. Cached for the same reason as
+    get_el_sampled_points, same smaller n_points too.
     """
     return sample_points_per_vass_zone(NVE_REGIONER_SHP, n_points=n_points, seed=seed)
 
 
 def get_weather_region_label_and_points(area_type, area_number):
-    """Resolve the shared area selector's (area_type, area_number) to the
-    region_label/all_points pair the weather pages need - EL maps straight
-    onto a budomrader price zone ("NO3"), VASS maps onto one of the 3
-    grouped NVE_Region zones ("VASS1"/"VASS2"/"VASS3"). NO (the national
-    total) has no corresponding region shapefile at all, so weather
-    sampling doesn't support it - callers are expected to gate on
-    area_type == "NO" before calling this.
+    """Turns the selector's (area_type, area_number) into the
+    region_label/points pair the weather functions need. EL maps onto a
+    budomrader price zone ("NO3"), VASS onto one of the 3 grouped
+    NVE_Region zones ("VASS1" etc). NO has no region shapefile at all, so
+    this doesn't support it - callers need to check for area_type == "NO"
+    themselves first.
     """
     if area_type == "EL":
         return f"NO{area_number}", get_el_sampled_points()
@@ -194,63 +175,56 @@ def get_weather_region_label_and_points(area_type, area_number):
 
 @st.cache_data(ttl=3600)
 def get_weather_hourly_avg_live(area_type, area_number, year):
-    """Hourly weather (temperature/precipitation/snowfall), averaged across
+    """Hourly weather (temperature/precipitation/snowfall) averaged across
     a small sample of points in the given EL/VASS area, fetched live from
-    open-meteo - the one function every weather-dependent page (Map,
-    Weather Outliers & Anomalies, Correlation, Forecasting) now calls.
+    open-meteo. Every weather page (Map, Weather Outliers & Anomalies,
+    Correlation, Forecasting) calls this now.
 
-    Replaces the Part 3 Cassandra -> Spark -> MongoDB pre-aggregation
-    pipeline entirely: that required each student to have already run
-    their own MongoDB-seeding pipeline before the app's weather pages would
-    show anything, which classmates comparing notes turned out not to have
-    done the same way - only the cross-border data (get_crossborder_docs
-    below) is genuinely shared/pre-aggregated that way. So as of Part 4,
-    weather is fetched straight from open-meteo on demand instead, with no
-    separate "download" page or step.
+    Replaces the old Part 3 pipeline (Cassandra -> Spark -> MongoDB,
+    pre-aggregated). That meant everyone had to already have their own
+    MongoDB seeded before the weather pages showed anything, and comparing
+    notes with classmates it turned out people hadn't all set that up the
+    same way. Cross-border data (get_crossborder_docs below) is still
+    genuinely shared/pre-aggregated like that - just not weather anymore,
+    that's fetched straight from open-meteo on demand instead.
 
-    st.cache_data(ttl=3600) here is what keeps this fast on repeat
-    visits/reruns within a session - the underlying fetch_weather_for_region()
-    (modules/weather_utils.py) also disk-caches each chunk, so even a fresh
-    session reuses previously-downloaded points rather than re-hitting
-    open-meteo, but going through this cache avoids even that disk read on
-    every rerun of a page.
+    The ttl=3600 cache here is what keeps repeat visits/reruns fast -
+    fetch_weather_for_region() underneath also disk-caches each chunk, so
+    even a fresh session reuses what's already been downloaded, but
+    caching here too skips even that disk read on every rerun.
 
-    Raises RuntimeError (propagated from fetch_weather_for_region) if
-    open-meteo's request quota is exhausted or the request fails after
-    retries - callers should wrap this in a try/except and show st.error.
-    Returns None for area_type == "NO" (the national total has no region
-    shapefile to sample weather from at all) - callers are expected to gate
-    on that themselves before calling, matching get_weather_region_label_and_points.
+    Raises RuntimeError if open-meteo's quota is used up or the request
+    keeps failing - wrap this in try/except and show st.error. Doesn't
+    work for area_type == "NO" (no region shapefile for the national
+    total) - callers need to check for that themselves first.
     """
     region_label, points = get_weather_region_label_and_points(area_type, area_number)
     return get_weather_hourly_avg(region_label, points, year)
 
 
-@st.cache_resource  # Cache the MongoClient across reruns - it isn't serializable, so this
-# needs st.cache_resource rather than st.cache_data. Lives here, not
-# modules/weather_utils.py, for the same reason this module's own
-# docstring gives.
+@st.cache_resource  # cache_resource, not cache_data - a MongoClient isn't
+# serializable. Lives here rather than weather_utils.py for the same
+# reason as this module's own docstring.
 def get_mongo_client():
     return MongoClient(st.secrets["MONGODB_URI"], tlsCAFile=certifi.where())
 
 
 def get_crossborder_collection():
-    """The MongoDB collection for cross-border data (daily totals, not
-    monthly - renamed from crossborder_monthly once the aggregation moved
-    to daily granularity). Kept here, not in a Streamlit-free module, since
-    this goes through the Streamlit-cached get_mongo_client() above.
+    """The MongoDB collection for cross-border data (daily now, not
+    monthly - renamed from crossborder_monthly once I switched the
+    aggregation to daily). Lives here since it goes through the cached
+    get_mongo_client() above.
     """
     return get_mongo_client()["ind320"]["crossborder_daily"]
 
 
 @st.cache_data(ttl=3600)
 def get_crossborder_docs(connection, year):
-    """All cross-border flow documents for one connection/year, as a
-    DataFrame - cached so the Cross-border Exchange page's year/direction
-    totals and daily-by-month chart don't each re-query MongoDB on every
-    rerun (e.g. every time the month pills selection changes), since both
-    read from the exact same (connection, year) document set and only
-    differ in how it's aggregated/filtered afterwards, in pandas.
+    """All cross-border documents for one connection/year, as a
+    DataFrame. Cached so the page's totals and its daily chart don't both
+    re-query MongoDB on every rerun - they read the exact same
+    (connection, year) documents, just aggregate them differently
+    afterwards in pandas.
     """
     docs = list(get_crossborder_collection().find({"connection": connection, "year": year}))
     return pd.DataFrame(docs)

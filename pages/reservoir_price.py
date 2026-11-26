@@ -10,10 +10,9 @@ st.title("Reservoir Data")
 
 data = load_data()
 
-# Shared sidebar area selector (modules/app_utils.py) - only area_type is
-# used here (every area of that type is shown at once), but it's the same
-# global selector the other pages read from, so picking EL/VASS here keeps
-# that choice when you navigate elsewhere.
+# Shared sidebar selector - only need area_type here since this page shows
+# every area of that type at once, but it's the same global selector, so
+# picking EL/VASS here carries over to the other pages too.
 area_type, _ = area_selector()
 areas = filter_area_type(data, area_type)
 

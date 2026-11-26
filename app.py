@@ -2,13 +2,11 @@ import streamlit as st
 
 st.set_page_config(page_title="IND320 - Norwegian Reservoirs", layout="wide")
 
-# Grouped multi-page navigation (Part 4 restructure) - replaces the old
-# pages/ folder auto-discovery (flat, numbered N_Name.py files) with an
-# explicit, grouped structure: a front page, then 3 main sections, each
-# listing its own pages - see notebooks/Jupyter_part4.ipynb for the sketch
-# this follows. st.navigation() takes over page discovery entirely once
-# called here, so file names/locations under pages/ no longer need numeric
-# prefixes to control order - this list does that instead.
+# Grouped navigation (the Part 4 restructure) - replaces the old flat,
+# numbered pages/N_Name.py files with a front page plus 3 sections, each
+# listing its own pages (see the sketch in the Part 4 notebook). Once
+# st.navigation() is called it owns page discovery, so files under pages/
+# don't need numeric prefixes anymore - this list sets the order instead.
 pg = st.navigation({
     "": [
         st.Page("pages/home.py", title="Home", default=True),

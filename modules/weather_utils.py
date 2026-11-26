@@ -19,15 +19,14 @@ CACHE_DIR = Path(__file__).resolve().parent.parent / "data" / "cache" / "weather
 
 
 def sample_points_per_region(shapefile_path, region_col, n_points=1000, seed=None):
-    """Return a DataFrame with n_points random (lat, lon) locations inside
+    """Returns a DataFrame with n_points random (lat, lon) locations inside
     each region's polygon, reprojected to WGS84 regardless of the
-    shapefile's own CRS (both of ours are EPSG:25833, UTM zone 33N).
+    shapefile's own CRS (both of mine are EPSG:25833, UTM zone 33N).
 
-    Sampling is by rejection: draw random points inside each region's
-    bounding box and keep the ones that actually fall inside the polygon,
-    topping up with another batch whenever not enough land inside - simpler
-    than a direct polygon-sampling method and fine at this scale (1000
-    points, a handful of regions).
+    Rejection sampling: draw random points inside each region's bounding
+    box, keep the ones that land inside the actual polygon, and top up
+    with another batch if not enough landed inside. Simpler than sampling
+    the polygon directly, and fine at this scale.
     """
     gdf = gpd.read_file(shapefile_path, encoding="utf-8").to_crs(epsg=4326)
     rng = np.random.default_rng(seed)
@@ -54,16 +53,15 @@ def sample_points_per_region(shapefile_path, region_col, n_points=1000, seed=Non
     return pd.DataFrame(rows)
 
 
-# NVE_Region.shp (used above for weather sampling) has 5 regions: RS, RØ, RV,
-# RM, RN. magasinstatistikk's VASS area type reports 3 of those as combined
-# zones - confirmed against NVE's own authoritative region descriptions
-# (biapi.nve.no/magasinstatistikk/api/Magasinstatistikk/HentOmråder), which
-# describe omrnr 1 as "Sørøst-Norge...Østlandet, Agder og deler av Rogaland"
-# (matches RS+RØ), omrnr 2 as "Vest-Norge" (matches RV alone), and omrnr 3 as
-# "Midt-Norge...og sørlige Nordland" (matches RM+RN). Per the teacher's
-# feedback these get the names East/West/North. (NVE's endpoint also lists a
-# 4th VASS region, "Nord-Norge" - but it never shows up with real data in the
-# historical feed, so it's left out here rather than guessed at.)
+# NVE_Region.shp has 5 regions: RS, RØ, RV, RM, RN. magasinstatistikk's VASS
+# area type reports 3 combined zones instead - checked this against NVE's
+# own region descriptions (biapi.nve.no/magasinstatistikk/api/Magasinstatistikk/
+# HentOmråder): omrnr 1 is "Sørøst-Norge...Østlandet, Agder og deler av
+# Rogaland" (= RS+RØ), omrnr 2 is "Vest-Norge" (= RV alone), omrnr 3 is
+# "Midt-Norge...og sørlige Nordland" (= RM+RN). Named East/West/North per
+# the teacher's feedback. (NVE's endpoint also lists a 4th VASS region,
+# "Nord-Norge", but it never actually has data in the historical feed, so
+# it's left out here rather than guessed at.)
 VASS_REGION_GROUPS = {
     1: ("East", ["RS", "RØ"]),
     2: ("West", ["RV"]),
@@ -72,15 +70,13 @@ VASS_REGION_GROUPS = {
 
 
 def sample_points_per_vass_zone(shapefile_path, region_col="REGION", n_points=1000, seed=None):
-    """Like sample_points_per_region, but for the 3 combined VASS watercourse
-    zones rather than the 5 raw shapefile regions: samples n_points per raw
-    region as usual, then relabels each point from its raw region code (RS,
-    RØ, RV, RM, RN) to its VASS zone ("VASS1"/"VASS2"/"VASS3", matching
-    magasinstatistikk's own omrnr so the rest of the weather pipeline - which
-    only ever looks up points by exact region label - doesn't need to know
-    about the grouping at all). East and North each combine 2 raw regions,
-    so they end up with 2 * n_points sampled locations; West (1 raw region)
-    has n_points, same as a single EL zone.
+    """Like sample_points_per_region, but for the 3 combined VASS zones
+    instead of the 5 raw shapefile regions: samples n_points per raw
+    region, then relabels each point from its raw code (RS, RØ, RV, RM, RN)
+    to its VASS zone ("VASS1"/"VASS2"/"VASS3", matching magasinstatistikk's
+    own numbering so the rest of the pipeline doesn't need to know about
+    the grouping at all). East and North each combine 2 raw regions, so
+    they end up with 2x n_points; West (1 raw region) just gets n_points.
     """
     points = sample_points_per_region(shapefile_path, region_col, n_points=n_points, seed=seed)
     code_to_zone = {
@@ -94,24 +90,20 @@ def sample_points_per_vass_zone(shapefile_path, region_col="REGION", n_points=10
 
 ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 
-# Precipitation and temperature are what the assignment explicitly asks for;
-# snowfall is included as an "other relevant property" - for a hydropower
-# catchment, snowmelt affects reservoir inflow alongside rain, so it's
-# directly relevant here even though the assignment doesn't name it. Kept
-# short rather than grabbing every available variable: at 1000 points per
-# region and a full year hourly, each extra variable adds real time and
-# data volume (tested live: 100 points x 1 year hourly x 6 variables was
-# already ~42 MB for one chunk).
+# Precipitation and temperature are what the assignment asks for; snowfall
+# is my own addition - for a hydropower catchment, snowmelt affects
+# reservoir inflow just as much as rain does. Kept to just these 3 rather
+# than grabbing everything open-meteo has, since at 1000 points per region
+# and a full year hourly, extra variables add up fast (100 points x 1 year
+# x 6 variables was already ~42 MB for one chunk, tested live).
 HOURLY_VARIABLES = ["temperature_2m", "precipitation", "snowfall"]
 
-# The 429s turned out to be open-meteo's DAILY request quota, not a
-# short-lived burst limit - confirmed by the API's own error message
-# ("Daily API request limit exceeded. Please try again tomorrow."). That
-# changes the trade-off completely: since the quota is per *request* (not
-# per data point), fewer, larger chunks use it up more slowly than many
-# small ones. So this uses a large-ish chunk size to keep the total number
-# of requests for 1000 points down to about 10, rather than optimising for
-# request size.
+# The 429s turned out to be open-meteo's DAILY quota, not a short burst
+# limit - the API says so directly ("Daily API request limit exceeded.
+# Please try again tomorrow."). That matters: the quota is per *request*,
+# not per data point, so fewer/bigger chunks burn through it slower than
+# lots of small ones - hence the fairly large chunk size, to keep 1000
+# points down to about 10 requests instead of 100.
 CHUNK_SIZE = 100
 PAUSE_SECONDS = 2.0
 
@@ -132,29 +124,22 @@ def fetch_weather_for_region(region_id, points_df, start_date, end_date, region_
     """Hourly ERA5 historical weather (via open-meteo) for every point
     sampled for one region.
 
-    points_df: the output of sample_points_per_region() - optionally the
-    concatenation of several shapefiles' results - with columns
-    [region_col, "lat", "lon"]. Rather than taking a list of points
-    directly, this looks region_id up in that table itself, matching the
-    assignment's required function signature: a region identifier plus a
-    time interval.
+    points_df: output of sample_points_per_region() (or several
+    shapefiles' results concatenated), with columns [region_col, "lat",
+    "lon"]. Looks region_id up in that table rather than taking a plain
+    list of points, to match the function signature the assignment asks
+    for - a region identifier plus a time interval.
 
-    Each chunk of points is downloaded once and then cached to disk (under
-    cache_dir, keyed by region/date range/chunk position AND a hash of the
-    actual sampled (lon, lat) points in that chunk - see _points_hash) -
-    open-meteo's daily request quota is easy to exhaust and the connection
-    can be flaky for a request this size, so a later call (even a fresh
-    one, e.g. after restarting the kernel) reuses whatever was already
-    fetched rather than re-downloading it and burning more quota. The
-    points hash means a differently-sampled points_df for "the same"
-    region (a different seed, a different n_points - e.g. a quick 10-point
-    test run vs. a real 1000-point one) automatically gets its own cache
-    entries rather than colliding with an old, mismatched one.
+    Each chunk gets cached to disk under cache_dir (see _points_hash for
+    why the cache key includes a hash of the actual points, not just
+    region/date range) - open-meteo's daily quota is easy to burn through
+    and the connection can be flaky for requests this size, so re-running
+    this later reuses whatever's already fetched instead of re-downloading
+    and spending more quota.
 
-    Returns one tidy DataFrame with a row per (point, hour), tagged with
-    the region, a point_id (that point's position within the region's
-    sampled list) and its own lon/lat, so the raw readings can be
-    aggregated (e.g. averaged across points per timestamp) afterwards.
+    Returns one row per (point, hour), tagged with the region, a point_id,
+    and its own lon/lat, so it can be aggregated afterwards (e.g. averaged
+    across points per timestamp).
     """
     region_points = (
         points_df.loc[points_df[region_col] == region_id, ["lon", "lat"]]
@@ -190,17 +175,12 @@ def fetch_weather_for_region(region_id, points_df, start_date, end_date, region_
             "timezone": "UTC",
         }
 
-        # Two different kinds of failure to recover from here: a network-level
-        # problem (timeout/connection error - the request never even got a
-        # response), and a 429, which itself can mean a short burst limit
-        # (worth retrying after a short wait) or a longer-lived quota being
-        # exhausted - seen in practice as both "daily" and "hourly" request
-        # limits, worded differently ("try again tomorrow" / "try again in
-        # the next hour") but both pointless to retry within this call: no
-        # amount of backoff clears either before the stated window passes,
-        # and burning more retries against an already-exhausted quota just
-        # risks extending the throttle further. open-meteo's error body says
-        # which kind of 429 it is, so that's checked explicitly.
+        # Two kinds of failure here: a plain network error (never got a
+        # response at all), and a 429 - which can mean either a short burst
+        # limit (worth retrying) or the daily/hourly quota actually being
+        # used up (pointless to retry, no backoff clears that before the
+        # stated window passes). open-meteo's error body says which one it
+        # is, so that's checked explicitly rather than just retrying blind.
         response = None
         last_error = None
         backoff_seconds = [10, 20, 40, 80]
@@ -274,27 +254,22 @@ def fetch_weather_for_region(region_id, points_df, start_date, end_date, region_
 
 def get_weather_hourly_avg(region_label, points_df, year, region_col="region"):
     """Streamlit-free hourly weather average (temperature/precipitation/
-    snowfall) for one region/year - fetches (or reuses the disk cache from)
+    snowfall) for one region/year - calls (or reuses the disk cache from)
     fetch_weather_for_region() above and averages across all its sampled
     points per timestamp.
 
-    This is the one place the actual "average weather across a region"
-    computation lives. modules/app_utils.py's get_weather_hourly_avg_live()
-    is a thin st.cache_data wrapper around this - kept Streamlit-free here
-    (not there) for the same reason this whole module always has been: it
-    needs to stay directly importable from the notebook with no streamlit
-    dependency at all (even just `import streamlit`, without calling
-    anything st.cache_*-decorated, is enough to print "No runtime found"
-    warnings outside a real app - see modules/app_utils.py's own docstring).
+    This is where the actual "average weather across a region" computation
+    lives. app_utils.py's get_weather_hourly_avg_live() is just a thin
+    cached wrapper around this - kept Streamlit-free here so it still
+    works directly from the notebook (see app_utils.py's own docstring for
+    why that matters).
 
-    Replaces the old MongoDB-backed modules/mongo_utils.py version (Part 4
-    switched the whole app from "pre-download once via Cassandra -> Spark
-    -> MongoDB, read from Mongo if present" to "fetch live from open-meteo
-    on demand, every time" - see get_weather_hourly_avg_live()'s docstring
-    in app_utils.py for why). Unlike that version, this never returns None
-    for "not cached yet" - it always fetches (hitting disk cache for chunks
-    already downloaded) and can raise RuntimeError on a genuine network/
-    quota failure, which callers should catch and show to the user.
+    Replaces the old MongoDB-backed version from before Part 4 (pre-
+    download once via Cassandra -> Spark -> MongoDB, read from Mongo if
+    present). This always fetches instead (hitting the disk cache for
+    chunks already downloaded) and can raise RuntimeError on a real
+    network/quota failure - callers should catch that and show it to the
+    user.
     """
     weather = fetch_weather_for_region(region_label, points_df, f"{year}-01-01", f"{year}-12-31", region_col=region_col)
     hourly_avg = weather.groupby("timestamp")[HOURLY_VARIABLES].mean()

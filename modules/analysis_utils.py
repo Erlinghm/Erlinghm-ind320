@@ -68,15 +68,15 @@ def plot_precipitation_outliers(series, freq_cutoff=10, n_std=3, ax=None):
 
     A DCT high-pass filter splits `series` into a smooth seasonal trend
     (the lowest `freq_cutoff` DCT coefficients) and a high-frequency
-    residual - the Seasonally Adjusted Temporal Variation (SATV), per the
-    assignment's own naming. Robust statistics (median and a
-    normal-consistent MAD) computed over the SATV give constant control
-    limits in residual space; adding the seasonal trend back turns that
-    into a boundary CURVE in the original units, which is what actually
-    gets plotted - the SATV values themselves are only used to find the
-    boundaries and classify outliers, never plotted directly, per the
-    assignment ("Do not plot SATV values; only use them to find
-    boundaries and outliers").
+    residual - the Seasonally Adjusted Temporal Variation (SATV), which is
+    the assignment's own term for it. Robust stats (median + a
+    normal-consistent MAD) over the SATV give constant control limits in
+    residual space; adding the trend back turns that into a boundary curve
+    in the original units, which is what's actually plotted - the SATV
+    values themselves only get used to find the boundaries and flag
+    outliers, never plotted directly (the assignment says so explicitly:
+    "Do not plot SATV values; only use them to find boundaries and
+    outliers").
 
     Returns (ax, summary) where summary is a DataFrame of the flagged
     outliers (timestamp, value, satv).
@@ -127,15 +127,14 @@ def plot_temperature_anomalies(series, freq_cutoff=10, contamination=0.01, n_nei
     """Plot a temperature time series, colouring points flagged as
     anomalies by Local Outlier Factor in a contrasting colour.
 
-    LOF runs on the DESEASONALISED residual (the same DCT low-pass trend
-    used in plot_precipitation_outliers, subtracted out), not the raw
-    values. Otherwise LOF - which only looks at how isolated a value is
-    among other values, not when it occurred - systematically misses
-    anomalies that are unusual for their SEASON but not extreme relative
-    to the whole year (e.g. an unseasonably warm winter day that's still
-    cooler than an ordinary summer day): tested explicitly in this
-    project's test suite, where a raw-value LOF missed exactly this case
-    and the deseasonalised version caught it.
+    LOF runs on the deseasonalised residual (same DCT low-pass trend as in
+    plot_precipitation_outliers, subtracted out), not the raw values.
+    Otherwise LOF - which only looks at how isolated a value is among
+    other values, not when it happened - misses anomalies that are
+    unusual for their SEASON but not extreme for the whole year (an
+    unseasonably warm winter day that's still cooler than an ordinary
+    summer day, say). Hit this in testing: a raw-value LOF missed exactly
+    that case, the deseasonalised version caught it.
 
     Returns (ax, summary) where summary is a DataFrame of the flagged
     anomalies (timestamp, value, lof_score), most anomalous first.
@@ -174,27 +173,25 @@ def plot_fill_degree_stl(series, period=52, seasonal=53, trend=None, robust=Fals
     """STL (Seasonal-Trend decomposition using LOESS) of a reservoir
     fill-degree series, plotted as its four components.
 
-    - `seasonal` and `trend` are the LOESS smoothing-window lengths (in
-      observations) behind the seasonal and trend components respectively -
-      parameters with sensible defaults: `seasonal=53` is just over one full
-      52-week annual cycle, long enough that the extracted seasonal shape is
-      smooth and stable from year to year rather than chasing noise;
-      `trend=None` lets statsmodels fall back to its own formula-based
-      default (a function of `period` and `seasonal`), which is itself
-      guaranteed sensible - long enough to not quietly re-absorb the
-      seasonal pattern, short enough to still track real multi-year drift.
-    - `robust` (bool, default False) switches STL to its robust variant,
-      which down-weights unusually large residuals so a handful of outlier
-      weeks don't distort the trend/seasonal estimates.
-    - `period=52` is the length of one seasonal cycle in observations -
-      fixed by this being weekly data with an annual cycle, not one of the
-      assignment's own tunable parameters, but STL needs it regardless.
+    - `seasonal`/`trend` are the LOESS window lengths (in observations)
+      for the seasonal/trend components. `seasonal=53` is just over one
+      52-week annual cycle - long enough that the extracted seasonal shape
+      stays stable year to year instead of chasing noise. `trend=None`
+      lets statsmodels pick its own default from `period`/`seasonal`,
+      which is already sensible (long enough not to reabsorb the seasonal
+      pattern, short enough to still track real multi-year drift).
+    - `robust` (default False) switches to STL's robust variant, which
+      down-weights unusually large residuals so a few outlier weeks don't
+      distort the trend/seasonal estimates.
+    - `period=52` is one seasonal cycle in observations - fixed by this
+      being weekly data with an annual cycle rather than something to
+      tune, but STL still needs it passed in.
 
-    Any gaps in `series` are linearly interpolated first, since STL
-    requires a complete, evenly-spaced series.
+    Any gaps in `series` get linearly interpolated first, since STL needs
+    a complete, evenly-spaced series.
 
     Returns (axes, result) where result is the statsmodels DecomposeResult
-    (observed/trend/seasonal/resid, each aligned with `series.index`).
+    (observed/trend/seasonal/resid, aligned with `series.index`).
     """
     import matplotlib.pyplot as plt
 
@@ -232,29 +229,26 @@ def fill_degree_spectrogram(series, window_length=104, window_overlap=52):
 
 
 def plot_fill_degree_spectrogram(series, window_length=104, window_overlap=52, ax=None):
-    """Spectrogram of a reservoir fill-degree series - the same data
+    """Spectrogram of a reservoir fill-degree series - same data as
     `plot_fill_degree_stl` decomposes - showing how its frequency content
-    changes over time, rather than STL's single year-round seasonal shape.
+    changes over time, instead of STL's one fixed seasonal shape.
 
-    - `window_length` (observations) is the length of each STFT segment -
-      104 (2 years of weekly data) by default, long enough to contain a
-      couple of repeats of the ~52-week annual cycle (so that cycle shows
-      up as a clear frequency band at all) while still leaving several
-      segments across a multi-year series to show change over time.
-    - `window_overlap` (observations) is how much consecutive segments
-      overlap - half of `window_length` by default, the usual STFT
-      convention, which smooths the time axis out at the cost of some
-      redundant computation.
-    - both are parameters with sensible defaults, per the assignment.
+    - `window_length` is each STFT segment's length in observations - 104
+      (2 years of weekly data) by default, long enough to contain a
+      couple of repeats of the ~52-week annual cycle so it actually shows
+      up as a frequency band, while still leaving several segments across
+      a multi-year series.
+    - `window_overlap` is how much consecutive segments overlap - half of
+      `window_length` by default, the usual STFT convention.
+    - both have sensible defaults, as the assignment asks for.
 
-    The series is one sample per week (fs=1 "per week"), so the raw
-    frequency axis from scipy is in cycles/week; it's rescaled to
-    cycles/year (x52) here since that's the natural unit for describing
-    an annual cycle. Any gaps are linearly interpolated first, since the
-    STFT needs a complete, evenly-spaced series.
+    The series is one sample per week, so scipy's raw frequency axis comes
+    out in cycles/week - rescaled to cycles/year here (x52) since that's
+    the more natural unit for an annual cycle. Gaps get linearly
+    interpolated first, since STFT needs a complete, evenly-spaced series.
 
     Returns (ax, result) where result is (frequencies_per_year, times,
-    Sxx) as from scipy.signal.spectrogram, frequencies already rescaled.
+    Sxx), frequencies already rescaled.
     """
     import matplotlib.pyplot as plt
 
@@ -271,20 +265,22 @@ def plot_fill_degree_spectrogram(series, window_length=104, window_overlap=52, a
 
 def sliding_window_correlation(series_a, series_b, window, lag=0):
     """Rolling Pearson correlation between series_a and series_b, with
-    series_b shifted by `lag` steps first (positive lag: series_b's value
-    `lag` steps in the past is compared against series_a's current value -
-    e.g. "does this week's fill degree correlate with temperature from 3
-    weeks ago", i.e. does weather lead reservoir filling by 3 weeks).
-    Verified against a synthetic series built the other way around
-    (fill_degree = weather.shift(3) + noise) before relying on it: the
-    rolling correlation peaks at lag=+3, as expected. Both series are
-    aligned on their shared index first (inner join), so they don't need
-    to already share an identical index/length - just a compatible one
-    (e.g. both resampled to weekly before calling this).
+    series_b shifted by `lag` steps first (a positive lag compares
+    series_a's current value against series_b's value `lag` steps in the
+    past - e.g. "does this week's fill degree correlate with temperature
+    from 3 weeks ago", i.e. does weather lead reservoir filling by 3
+    weeks).
+
+    Tried this on a synthetic series built the other way around
+    (fill_degree = weather.shift(3) + noise) to check it actually works:
+    the rolling correlation peaks at lag=+3, as expected. The two series
+    get aligned on their shared index first (inner join), so they don't
+    need to already share an identical index/length - just a compatible
+    one (e.g. both resampled to weekly before calling this).
 
     Returns a Series (indexed like the aligned/lagged input) of rolling
-    correlation coefficients over a window of `window` points - like any
-    other rolling statistic, the first `window - 1` points are NaN.
+    correlation over a window of `window` points - like any rolling stat,
+    the first `window - 1` points are NaN.
     """
     aligned_a, aligned_b = series_a.align(series_b.shift(lag), join="inner")
     return aligned_a.rolling(window).corr(aligned_b)

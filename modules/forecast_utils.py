@@ -1,23 +1,22 @@
-"""River-based forecasting of a single region's weekly Magasinstatistikk
-fill_degree, a few months ahead, with selectable exogenous data sources and
+"""River-based forecasting of one region's weekly Magasinstatistikk
+fill_degree a few months ahead, with selectable exogenous data sources and
 quantile-regression confidence bands.
 
-Defaults (p=1, d=1, q=1, m=52, sd=1, sp=0, sq=0, history=104) are the
-winning setting from the walk-forward sweep in the Part 4 notebook - by far
-the biggest factor there was seasonal differencing (sd): turning it off
-sent the mean MAE up roughly 6x, since fill_degree is so strongly seasonal
-that SNARIMAX can't track it without explicitly differencing the annual
-cycle out first.
+Defaults (p=1, d=1, q=1, m=52, sd=1, sp=0, sq=0, history=104) come from the
+walk-forward sweep in the Part 4 notebook - by far the biggest factor there
+was seasonal differencing (sd): turning it off multiplied the mean MAE by
+about 6x, since fill_degree is seasonal enough that SNARIMAX can't track it
+without differencing out the annual cycle first.
 
-Verified with a synthetic seasonal series before relying on it against the
-real data: river.time_series.SNARIMAX's bare (non-pipeline) learn_one/
-forecast API takes exogenous features directly as a dict (learn_one(y,
-x=...), forecast(horizon, xs=...)), and plugging river.optim.losses.Quantile
-into the regressor gives quantile forecasts - but each quantile is an
-independently trained online model, so the three can "cross" (lower ending
-up above upper at some horizon step). This is a known limitation of
-pointwise quantile regression, not a bug - fixed here by sorting the three
-forecasts at each step rather than trusting the model ordering.
+Tried this on a synthetic seasonal series before trusting it on the real
+data: River's SNARIMAX (the plain, non-pipeline version) takes exogenous
+features as a dict (learn_one(y, x=...), forecast(horizon, xs=...)), and
+plugging river.optim.losses.Quantile into the regressor gives quantile
+forecasts. One catch: each quantile is trained as a completely separate
+online model, so they can "cross" (the lower bound ends up above the upper
+one at some step) - not a bug, just a known issue with doing quantile
+regression this way, fixed below by sorting the three forecasts at each
+step instead of trusting which model is which.
 """
 
 import pandas as pd
@@ -56,32 +55,31 @@ def forecast_fill_degree(
     series using River's SNARIMAX, with optional exogenous regressors and
     quantile confidence bands.
 
-    y: pd.Series of weekly fill_degree, indexed by date, sorted ascending,
-       for a single region (e.g. filter_area_type(data, "EL") narrowed to
-       one area_number).
-    history: use only the last `history` points of y for training (None =
-       all of it) - lets the caller trade off training length vs. speed/
-       relevance of older data, per the assignment's "length of history"
-       input. Default 104 (2 years) is the walk-forward sweep's winner -
-       see the Part 4 notebook's "Testing various settings" section.
+    y: weekly fill_degree for a single region, indexed by date, sorted
+       ascending (e.g. filter_area_type(data, "EL") narrowed to one
+       area_number).
+    history: only train on the last `history` points of y (None = use all
+       of it) - lets the caller trade training length off against speed
+       and how relevant the older data still is, which is the "length of
+       history" input the assignment asks for. 104 (2 years) is the
+       walk-forward sweep's winner - see the notebook's "Testing various
+       settings" section.
     exogenous: optional dict[name -> pd.Series] of extra weekly-aligned
-       regressors (e.g. a region's mean weekly temperature/precipitation,
-       or EUR/USD rates resampled to weekly) - this is what lets the
-       caller pick which data sources feed the model; pass None/{} for a
-       plain univariate forecast.
-    future_exogenous: optional dict with the SAME keys as `exogenous`,
-       covering the `horizon` forecast dates (e.g. a weather forecast, or
-       simply the last known value persisted forward) - if omitted, the
-       model forecasts without exogenous input at all (xs=None), which
-       SNARIMAX supports fine, it just can't react to e.g. assumed future
-       weather.
-    quantiles: the 3 quantiles to fit (lower, median, upper) - default is
+       regressors (e.g. a region's mean weekly temperature, or EUR/USD
+       resampled to weekly) - this is what lets the caller choose which
+       data sources feed the model. Pass None/{} for a plain univariate
+       forecast.
+    future_exogenous: same keys as `exogenous`, but covering the `horizon`
+       forecast dates (e.g. a weather forecast, or just the last known
+       value carried forward). Left out, the model forecasts without any
+       exogenous input (xs=None) - that's fine, it just can't react to
+       assumed future weather/rates.
+    quantiles: the 3 quantiles to fit (lower, median, upper) - defaults to
        an 80% interval around the median.
 
-    Returns a DataFrame indexed by forecast date with columns "lower",
-    "median", "upper" (sorted per-step so lower <= median <= upper always
-    holds, even though the 3 underlying models are trained independently
-    and can otherwise disagree on order - see module docstring).
+    Returns a DataFrame indexed by forecast date with "lower"/"median"/
+    "upper" columns, sorted per step so lower <= median <= upper always
+    holds (see the module docstring for why that's not automatic).
     """
     y = y.sort_index()
     if history is not None:
@@ -90,10 +88,9 @@ def forecast_fill_degree(
     exogenous = exogenous or {}
     future_exogenous = future_exogenous or {}
 
-    # Build one x-dict per training timestamp, pulling the same date from
-    # every exogenous series (missing/NaN exogenous values just become a
-    # missing key for that step - SNARIMAX's regressor only needs the keys
-    # that are actually present).
+    # One x-dict per training timestamp, pulling that date from every
+    # exogenous series - a missing/NaN value just means that key is left
+    # out for that step, which SNARIMAX's regressor is fine with.
     def x_at(date, sources):
         return {name: series.loc[date] for name, series in sources.items() if date in series.index and pd.notna(series.loc[date])}
 

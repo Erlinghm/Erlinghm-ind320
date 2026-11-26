@@ -14,9 +14,9 @@ st.caption(
     "area selection (defaults to EL NO3 if nothing's been picked yet)."
 )
 
-# No area widget on this page, so just read the durable, cross-page
-# selection directly (see area_selector()'s _seed() docstring for why it's
-# "sel_area_type" etc. and not "area_type" etc.).
+# No area widget here - just read the durable, cross-page selection
+# directly (see _seed()'s docstring for why it's "sel_area_type" etc,
+# not "area_type" etc).
 area_type = st.session_state.get("sel_area_type", "EL")
 if area_type == "EL":
     area_number = st.session_state.get("sel_area_number_el", 3)
@@ -93,10 +93,10 @@ st.plotly_chart(fig, use_container_width=True)
 
 valid_corr = rolling_corr.dropna()
 if len(valid_corr):
-    # Both series get inner-joined on their index in sliding_window_correlation(),
-    # so this is already necessarily within the one year of weather fetched above -
-    # labelled with its actual date here so "latest" doesn't read as "today's" to
-    # anyone looking at this well after {year}.
+    # sliding_window_correlation() inner-joins both series on their index,
+    # so this is already within the one year of weather fetched above -
+    # labelled with its actual date so "latest" doesn't read as "today's"
+    # to anyone looking at this well after {year}.
     latest_date = valid_corr.index[-1]
     st.metric(f"Latest rolling correlation ({latest_date:%Y-%m-%d})", f"{valid_corr.iloc[-1]:.3f}")
     st.caption(
