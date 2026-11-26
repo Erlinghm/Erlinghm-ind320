@@ -8,20 +8,19 @@ This project explores Norwegian water reservoir (magasinstatistikk) data, togeth
 weather, electricity cross-border flow and currency exchange data for the areas and
 periods it covers, and forecasts reservoir filling a few months ahead.
 
-There are two ways to pick an area, depending on the page: the older pages
-(Reservoir & Price Data, Fill-Degree Decomposition, Weather Outliers & Anomalies)
-share one area selector in the sidebar (electricity price zone NO1-NO5, the
-national total, or a watercourse zone) - pick an area there and it stays picked
-across those pages. The newer pages (Correlation, Forecasting) instead default
-to whatever area you last clicked on the Interactive Area Map, so pick one
-there first if you want to drive those two from a specific area.
+Every page shares one area selection (electricity price zone NO1-NO5, the
+national total, or a watercourse zone): pick it from the sidebar (shown on
+Reservoir Data, Fill-Degree Decomposition, Weather Outliers & Anomalies) or by
+clicking a zone on the Interactive Area Map - either one updates the same
+selection everywhere else in the app, including Correlation and Forecasting.
 
 See `README.md` on GitHub for the full project description, data sources and app
 structure.
 
 ### Data Overview
-- **Reservoir & Price Data** - the raw/aggregated reservoir data as an interactive
-  plot and a table, with a small sparkline per area
+- **Reservoir Data** - the raw/aggregated reservoir data (fill degree, capacity,
+  filling) by price zone, as an interactive plot and a table, with a small
+  sparkline per area
 - **Interactive Area Map** - a GeoJSON map covering all 3 area types (EL price
   zones, VASS watercourse zones, and NO - the national total, drawn as all 5 EL
   zones dissolved into one outline), coloured by fill degree or (for EL/VASS) a

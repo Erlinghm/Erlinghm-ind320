@@ -13,13 +13,26 @@ st.caption(
     "SNARIMAX forecast (River, online learning) of weekly reservoir fill "
     "degree for one region, with selectable history length, model order, "
     "exogenous data sources, and quantile confidence bands (bonus). Area "
-    "and as-of date default to whatever's selected on the Interactive Area "
-    "Map page, so the two pages stay in sync."
+    "defaults to the app's one shared area selection; as-of date defaults to "
+    "whatever week is selected on the Interactive Area Map, so the two pages "
+    "stay in sync."
 )
 
-area_type = st.session_state.get("map_selected_area_type", "EL")
-area_number = st.session_state.get("map_selected_area", 3 if area_type == "EL" else 1)
-st.caption(f"Area: **{area_type} {area_number}** - pick a different one on the Interactive Area Map page.")
+# No area widget on this page, so just read the durable, cross-page
+# selection directly (see area_selector()'s _seed() docstring for why it's
+# "sel_area_type" etc. and not "area_type" etc.).
+area_type = st.session_state.get("sel_area_type", "EL")
+if area_type == "EL":
+    area_number = st.session_state.get("sel_area_number_el", 3)
+elif area_type == "VASS":
+    area_number = st.session_state.get("sel_area_number_vass", 1)
+else:
+    area_number = 0
+st.caption(
+    f"Area: **{area_type} {area_number}** - change it in the sidebar (Reservoir Data, "
+    f"Fill-Degree Decomposition, Weather Outliers) or by clicking a zone on the "
+    f"Interactive Area Map; either one updates it here too."
+)
 
 if area_type != "EL":
     st.warning(

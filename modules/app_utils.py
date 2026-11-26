@@ -52,45 +52,82 @@ AREA_TYPE_HELP = (
 VASS_LABELS = {1: "East (VASS1)", 2: "West (VASS2)", 3: "North (VASS3)"}
 
 
+def _seed(widget_key, durable_key, default):
+    """Copy durable_key's value into widget_key right before widget_key's
+    widget is created, defaulting durable_key itself the first time.
+
+    Streamlit treats a keyed widget as a brand-new widget whenever its
+    identity changes - and a widget's page is part of its identity in a
+    multipage app - so "area_type"/"area_number_el"/"area_number_vass"
+    reset to their index=/value= default every time they're rendered on a
+    *different* page than last time (see Streamlit's "Widget behavior" docs:
+    "widget identities aren't preserved between pages" and a changed-identity
+    key gets overwritten with its default). That's exactly the bug this
+    fixes: clicking NO2 on the map set "area_number_el" directly, but the
+    very next page's Price zone selectbox still reset it to NO3.
+
+    The fix Streamlit's docs recommend is to keep the durable value under a
+    key that's never itself used as a widget's key (so it's immune to that
+    per-page reset), and re-seed the real widget key from it immediately
+    before every widget call, then write the widget's result back after.
+    """
+    if durable_key not in st.session_state:
+        st.session_state[durable_key] = default
+    st.session_state[widget_key] = st.session_state[durable_key]
+
+
 def area_selector():
     """Render the shared area picker in the sidebar and return
     (area_type, area_number).
 
     This is deliberately global, not local to each page: it's the one
-    selector that every area-dependent page (Table, Plot, and the new Fill
-    Degree / Weather Download / Weather Analysis pages) reads from, via
-    fixed widget keys - so picking EL/NO3 on one page keeps it picked when
-    you switch to another, and the weather pages download/analyse exactly
-    the area this selector is set to, per the assignment's "let the choice
-    of downloaded data depend on the selector used for the magasinstatistikk"
-    instruction. Table and Plot only need the area_type half (they show
-    every area of that type at once); the new single-series pages also need
-    area_number to narrow down to just one.
+    selector that every area-dependent page (Reservoir Data, Fill-Degree
+    Decomposition, Weather Outliers & Anomalies) reads from - so picking
+    EL/NO3 on one page keeps it picked when you switch to another, and the
+    weather pages fetch/analyse exactly the area this selector is set to,
+    per the assignment's "let the choice of downloaded data depend on the
+    selector used for the magasinstatistikk" instruction.
+
+    The durable state lives in "sel_area_type"/"sel_area_number_el"/
+    "sel_area_number_vass" (see _seed() above for why a *separate* set of
+    keys is needed) - that's the app's single shared area selection, full
+    stop: the Interactive Area Map page reseeds its own area-type widget
+    from "sel_area_type" and writes a click straight into "sel_area_number_el"/
+    "sel_area_number_vass", and Correlation/Forecasting read those same three
+    keys directly (they have no area widgets of their own) - so a pick made
+    anywhere (this sidebar or a map click) shows up everywhere else. Table/
+    Plot-style pages only need the area_type half (they show every area of
+    that type at once); single-series pages also need area_number to narrow
+    down to just one.
     """
     st.sidebar.markdown("### Area")
+    _seed("area_type", "sel_area_type", "EL")
     area_type = st.sidebar.radio(
         "Area type",
         options=["EL", "NO", "VASS"],
-        index=0,
         key="area_type",
         help=AREA_TYPE_HELP,
     )
+    st.session_state["sel_area_type"] = area_type
 
     if area_type == "EL":
+        _seed("area_number_el", "sel_area_number_el", 3)  # NO3 - the zone used throughout the Part 3 notebook
         area_number = st.sidebar.selectbox(
             "Price zone",
             options=[1, 2, 3, 4, 5],
-            index=2,  # NO3 - the zone used throughout the Part 3 notebook
             format_func=lambda n: f"NO{n}",
             key="area_number_el",
         )
+        st.session_state["sel_area_number_el"] = area_number
     elif area_type == "VASS":
+        _seed("area_number_vass", "sel_area_number_vass", 1)
         area_number = st.sidebar.selectbox(
             "Watercourse zone",
             options=[1, 2, 3],
             format_func=lambda n: VASS_LABELS[n],
             key="area_number_vass",
         )
+        st.session_state["sel_area_number_vass"] = area_number
     else:
         area_number = 0
         st.sidebar.caption("National total - one area only.")

@@ -6,7 +6,7 @@ from modules.app_utils import area_selector
 from modules.data_utils import filter_area_type, load_data
 from modules.theme import CATEGORICAL
 
-st.title("Reservoir & Price Data")
+st.title("Reservoir Data")
 
 data = load_data()
 

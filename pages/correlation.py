@@ -10,13 +10,25 @@ from modules.theme import CATEGORICAL, CHROME
 st.title("Weather ↔ Reservoir Correlation")
 st.caption(
     "Sliding-window correlation between a chosen weather property and reservoir "
-    "fill degree, with adjustable lag and window length. Uses the area selected "
-    "on the Interactive Area Map page (defaults to EL NO3 if none picked yet)."
+    "fill degree, with adjustable lag and window length. Uses the app's one shared "
+    "area selection (defaults to EL NO3 if nothing's been picked yet)."
 )
 
-area_type = st.session_state.get("map_selected_area_type", "EL")
-area_number = st.session_state.get("map_selected_area", 3 if area_type == "EL" else 1)
-st.caption(f"Area: **{area_type} {area_number}** - pick a different one on the Interactive Area Map page.")
+# No area widget on this page, so just read the durable, cross-page
+# selection directly (see area_selector()'s _seed() docstring for why it's
+# "sel_area_type" etc. and not "area_type" etc.).
+area_type = st.session_state.get("sel_area_type", "EL")
+if area_type == "EL":
+    area_number = st.session_state.get("sel_area_number_el", 3)
+elif area_type == "VASS":
+    area_number = st.session_state.get("sel_area_number_vass", 1)
+else:
+    area_number = 0
+st.caption(
+    f"Area: **{area_type} {area_number}** - change it in the sidebar (Reservoir Data, "
+    f"Fill-Degree Decomposition, Weather Outliers) or by clicking a zone on the "
+    f"Interactive Area Map; either one updates it here too."
+)
 
 if area_type == "NO":
     st.info(
@@ -81,10 +93,16 @@ st.plotly_chart(fig, use_container_width=True)
 
 valid_corr = rolling_corr.dropna()
 if len(valid_corr):
-    st.metric("Latest rolling correlation", f"{valid_corr.iloc[-1]:.3f}")
+    # Both series get inner-joined on their index in sliding_window_correlation(),
+    # so this is already necessarily within the one year of weather fetched above -
+    # labelled with its actual date here so "latest" doesn't read as "today's" to
+    # anyone looking at this well after {year}.
+    latest_date = valid_corr.index[-1]
+    st.metric(f"Latest rolling correlation ({latest_date:%Y-%m-%d})", f"{valid_corr.iloc[-1]:.3f}")
     st.caption(
-        f"Strongest correlation in this window/lag setting: {valid_corr.abs().idxmax():%Y-%m-%d} "
-        f"({valid_corr.loc[valid_corr.abs().idxmax()]:.3f})."
+        f"\"Latest\" means latest within the {year} weather window fetched above, not today's - "
+        f"the strongest correlation in this window/lag setting was on "
+        f"{valid_corr.abs().idxmax():%Y-%m-%d} ({valid_corr.loc[valid_corr.abs().idxmax()]:.3f})."
     )
 else:
     st.info("Not enough overlapping data for this window/lag combination to compute a correlation yet.")

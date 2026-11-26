@@ -4,16 +4,18 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from modules.app_utils import get_weather_hourly_avg_live
+from modules.app_utils import _seed, get_weather_hourly_avg_live
 from modules.data_utils import filter_area_type, load_data
 from modules.theme import SEQUENTIAL
 
 st.title("Interactive Area Map")
 st.caption(
-    "Click an area to select it - the selection is stored and reused as the "
-    "default area on the Correlation and Forecasting pages. GeoJSON converted "
-    "from the project's shapefiles - see the Part 4 notebook. NO is the national "
-    "total, drawn as all 5 EL zones dissolved into one outline (it has no region "
+    "Click an area to select it - this is the same, single area selection used "
+    "everywhere in the app (the sidebar picker on Reservoir Data, Fill-Degree "
+    "Decomposition and Weather Outliers, plus Correlation and Forecasting - "
+    "picking one here or there updates all of them). GeoJSON converted from the "
+    "project's shapefiles - see the Part 4 notebook. NO is the national total, "
+    "drawn as all 5 EL zones dissolved into one outline (it has no region "
     "shapefile of its own); EL and VASS cover the \"Price area\"/\"Water area\" "
     "cases from the assignment, and either one can also be coloured by a weather "
     "property instead."
@@ -37,9 +39,17 @@ def load_geojson(area_type):
 
 col1, col2 = st.columns(2)
 with col1:
+    # Reseed from the durable "sel_area_type" before creating this widget -
+    # Streamlit resets a keyed widget to its default whenever it's rendered
+    # on a different page than last time (see area_selector()'s _seed() for
+    # why), so without this, switching here from the sidebar's own area-type
+    # radio (a different page, same key) would silently snap back to EL.
+    _seed("area_type", "sel_area_type", "EL")
     area_type = st.selectbox(
         "Area type (shapefile)", options=["EL", "VASS", "NO"], format_func=lambda t: AREA_TYPE_LABELS[t],
+        key="area_type",
     )
+    st.session_state["sel_area_type"] = area_type
 with col2:
     if area_type == "NO":
         # The national total has no region shapefile of its own to sample weather
@@ -58,9 +68,15 @@ areas = filter_area_type(data, area_type)
 weeks = sorted(areas.index.unique())
 
 # A lot of weekly options to choose from (magasinstatistikk goes back to the
-# late 1990s) - default to the most recent week rather than the oldest.
+# late 1990s) - default to the most recent week rather than the oldest, EXCEPT
+# in weather mode: open-meteo's historical archive lags well behind today (we
+# saw it still miss a week 11 days old), so defaulting to weeks[-1] there just
+# lands on the "no weather data yet" message every time. ~10 weeks back is a
+# safer bet for an out-of-the-box working default; the slider can still be
+# moved all the way to the latest week, which just surfaces that same message.
+default_week = weeks[-1] if color_by == "Reservoir fill degree" else weeks[max(0, len(weeks) - 11)]
 selected_week = st.select_slider(
-    "Week", options=weeks, value=weeks[-1], format_func=lambda d: d.strftime("%Y-%m-%d"),
+    "Week", options=weeks, value=default_week, format_func=lambda d: d.strftime("%Y-%m-%d"),
 )
 # Stored so the Forecasting page can default its "forecast as of" date to
 # whatever week is selected here, keeping the two pages' timeframes in sync.
@@ -89,18 +105,25 @@ else:
     if values.empty:
         st.info(
             f"No weather data available for any {area_type} zone in the week of "
-            f"{selected_week:%Y-%m-%d} (open-meteo's historical archive only goes up "
-            f"to a few days ago) - try an earlier week, or switch back to "
-            f"\"Reservoir fill degree\"."
+            f"{selected_week:%Y-%m-%d} - open-meteo's historical archive can lag "
+            f"several weeks behind today, not just a few days. Try an earlier week, "
+            f"or switch back to \"Reservoir fill degree\"."
         )
         st.stop()
 
 locations = [int(loc) for loc in values.index]
 z = list(values.to_numpy())
-selected_area = st.session_state.get("map_selected_area")
-selected_area_type = st.session_state.get("map_selected_area_type")
+# The durable, cross-page selection (see area_selector()'s _seed() docstring)
+# - reading *that*, instead of a map-only key, is what makes a sidebar pick
+# show up on the map and vice versa.
+if area_type == "EL":
+    selected_area = st.session_state.get("sel_area_number_el")
+elif area_type == "VASS":
+    selected_area = st.session_state.get("sel_area_number_vass")
+else:
+    selected_area = None
 marker_line_width = [
-    4 if (area_type == selected_area_type and loc == selected_area) else 1
+    4 if loc == selected_area else 1
     for loc in locations
 ]
 
@@ -134,16 +157,23 @@ fig.update_layout(
 event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key="area_map_chart")
 if event and event.get("selection", {}).get("points"):
     clicked_location = event["selection"]["points"][0]["location"]
-    if clicked_location != selected_area or area_type != selected_area_type:
-        st.session_state["map_selected_area"] = clicked_location
-        st.session_state["map_selected_area_type"] = area_type
+    if clicked_location != selected_area:
+        # Only the durable sel_area_number_* half needs writing - area_type
+        # is already correct (it's this widget's own current value), and its
+        # widget was already instantiated above this run so it can't be
+        # re-set here anyway.
+        if area_type == "EL":
+            st.session_state["sel_area_number_el"] = clicked_location
+        elif area_type == "VASS":
+            st.session_state["sel_area_number_vass"] = clicked_location
         st.rerun()
 
-if selected_area is not None and selected_area_type is not None:
-    _, selected_labels = load_geojson(selected_area_type)
+if area_type == "NO":
+    st.caption("NO is the national total - no sub-area to select, it already covers every zone.")
+elif selected_area is not None:
     st.success(
-        f"Selected for other pages: {selected_area_type} area {selected_area} "
-        f"({selected_labels.get(selected_area, '?')})"
+        f"Selected everywhere in the app: {area_type} area {selected_area} "
+        f"({labels.get(selected_area, '?')})"
     )
 else:
     st.caption("No area selected yet - click one on the map above.")

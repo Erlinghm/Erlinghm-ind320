@@ -78,7 +78,7 @@ data/geojson/                 # GeoJSON converted from the shapefiles for the In
 ```
 
 Two ways to pick an area, depending on the page: the older pages
-(Reservoir & Price Data, Fill-Degree Decomposition, Weather Outliers &
+(Reservoir Data, Fill-Degree Decomposition, Weather Outliers &
 Anomalies) share one sidebar selector (`area_selector()` in
 `modules/app_utils.py`) - pick an area there and it stays picked across
 those pages. The newer pages (Correlation, Forecasting) instead default to

@@ -14,7 +14,7 @@ pg = st.navigation({
         st.Page("pages/home.py", title="Home", default=True),
     ],
     "Data Overview": [
-        st.Page("pages/reservoir_price.py", title="Reservoir & Price Data"),
+        st.Page("pages/reservoir_price.py", title="Reservoir Data"),
         st.Page("pages/map.py", title="Interactive Area Map"),
         st.Page("pages/crossborder.py", title="Cross-border Exchange"),
         st.Page("pages/currency.py", title="Currency Rates"),
